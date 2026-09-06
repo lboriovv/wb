@@ -351,7 +351,8 @@ struct PostcardEnvelopeGiftScreen: View {
                     config: config,
                     sealProgress: 1,
                     isInteractive: false,
-                    showsSeal: false
+                    showsSeal: false,
+                    showsCutHint: true
                 )
                 .frame(width: envelopeSize.width, height: envelopeSize.height)
                 .scaleEffect(envelopeScale)
@@ -389,13 +390,6 @@ struct PostcardEnvelopeGiftScreen: View {
                 )
                 .position(x: envelopeCenter.x, y: envelopeCenter.y)
                 .zIndex(4)
-
-                EnvelopeCutHintView(progress: tearProgress)
-                    .position(
-                        x: stage.width / 2,
-                        y: envelopeCenter.y + envelopeSize.height / 2 + 24 + WBLineHeight.description / 2
-                    )
-                    .zIndex(4.4)
             }
 
             if isOpen {
@@ -773,6 +767,9 @@ private struct EnvelopePackageView: View {
                     isInteractive: isInteractive
                 )
                 .zIndex(4)
+
+                EnvelopeCutHintView(config: config)
+                    .zIndex(4.1)
             }
         }
     }
@@ -797,6 +794,7 @@ private struct EnvelopeFrontLayerView: View {
     let sealProgress: CGFloat
     let isInteractive: Bool
     var showsSeal: Bool = true
+    var showsCutHint: Bool = false
 
     var body: some View {
         GeometryReader { _ in
@@ -812,6 +810,10 @@ private struct EnvelopeFrontLayerView: View {
                         progress: sealProgress,
                         isInteractive: isInteractive
                     )
+                }
+
+                if showsCutHint {
+                    EnvelopeCutHintView(config: config)
                 }
             }
         }
@@ -1105,41 +1107,41 @@ private struct EnvelopeCapLayerView: View {
 }
 
 private struct EnvelopeCutHintView: View {
-    let progress: CGFloat
+    let config: EnvelopeRevealConfig
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let opacity = 1 - Ease.appear(clamp01(progress * 5))
-            let chevronOffset = chevronOffset(at: context.date.timeIntervalSinceReferenceDate)
+        GeometryReader { geo in
+            let size = geo.size
+            let position = hintPosition(in: size)
 
-            HStack(spacing: 5) {
-                Text("Проведите по линии")
-                    .font(WBFont.description)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .frame(width: 9, height: WBLineHeight.description)
-                    .offset(x: chevronOffset)
-            }
-            .foregroundStyle(WBColor.textSecondary)
-            .opacity(Double(opacity))
+            Text("Проведите по линии")
+                .font(WBFont.description)
+                .foregroundStyle(.white.opacity(0.64))
+                .lineLimit(1)
+                .frame(width: size.width, height: WBLineHeight.description)
+                .position(position)
         }
         .allowsHitTesting(false)
     }
 
-    private func chevronOffset(at time: TimeInterval) -> CGFloat {
-        let run: TimeInterval = 0.58
-        let pause: TimeInterval = 0.92
-        let cycle = run + pause
-        let cycleTime = time.truncatingRemainder(dividingBy: cycle)
-        guard cycleTime < run else { return 0 }
-
-        let p = CGFloat(cycleTime / run)
-        if p < 0.45 {
-            return 5 * Ease.appear(p / 0.45)
+    private func hintPosition(in size: CGSize) -> CGPoint {
+        if config.seam.isHorizontal {
+            let seamY = size.height * config.seam.position
+            let offset = size.height * (20.0 / 753.0)
+            let y = seamY + offset + WBLineHeight.description / 2
+            return CGPoint(
+                x: size.width / 2,
+                y: min(size.height - WBLineHeight.description / 2, y)
+            )
         }
 
-        return 5 * (1 - Ease.move((p - 0.45) / 0.55))
+        let seamX = size.width * config.seam.position
+        let offset = size.width * (20.0 / 1080.0)
+        let x = seamX + offset + 90
+        return CGPoint(
+            x: min(size.width - 90, max(90, x)),
+            y: size.height / 2
+        )
     }
 }
 
