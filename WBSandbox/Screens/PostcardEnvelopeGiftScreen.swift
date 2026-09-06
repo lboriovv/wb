@@ -130,7 +130,6 @@ struct PostcardEnvelopeGiftScreen: View {
     @State private var tearProgress: CGFloat = 0
     @State private var tearHapticStep = 0
     @State private var openedAt: Date?
-    @State private var isRevealing = false
 
     private let anim = EnvelopeGiftAnim()
     private let config = EnvelopeRevealConfig()
@@ -195,12 +194,12 @@ struct PostcardEnvelopeGiftScreen: View {
             Group {
                 if let demoElapsed = SandboxSettings.giftElapsed {
                     frame(at: demoElapsed, stage: stage)
-                } else if isRevealing, let openedAt {
+                } else if let openedAt {
                     TimelineView(.animation) { context in
                         frame(at: context.date.timeIntervalSince(openedAt), stage: stage)
                     }
                 } else {
-                    frame(at: isOpen ? anim.total : 0, stage: stage)
+                    frame(at: 0, stage: stage)
                 }
             }
             .frame(width: width, height: height, alignment: .topLeading)
@@ -210,7 +209,7 @@ struct PostcardEnvelopeGiftScreen: View {
             motion.start()
             if SandboxSettings.giftOpened || SandboxSettings.giftElapsed != nil {
                 tearProgress = 1
-                openedAt = .distantPast
+                openedAt = Date(timeIntervalSinceNow: -anim.total)
             }
         }
         .onDisappear { motion.stop() }
@@ -602,7 +601,6 @@ struct PostcardEnvelopeGiftScreen: View {
         tearProgress = 1
         tearHapticStep = 0
         openedAt = Date()
-        isRevealing = true
         Haptics.impact(.rigid)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + anim.flap * 0.58) {
@@ -613,9 +611,6 @@ struct PostcardEnvelopeGiftScreen: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + anim.cardBounceDelay) {
             Haptics.impact(.light)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.total) {
-            isRevealing = false
         }
     }
 
