@@ -23,6 +23,11 @@ struct EnvelopeGiftAnim {
     var chrome: Double { 0.36 * Self.k }
     var handoverDelay: Double { 1.36 * Self.k }
     var handover: Double { 0.35 * Self.k }
+    var cardSpinDelay: Double { cardBounceDelay + cardBounce * 0.72 }
+    var cardAutoSpinDegreesPerSecond: Double { 18 }
+    var cardSpinBoost: Double { 1.12 * Self.k }
+    var cardSpinBoostMinDegrees: Double { 150 }
+    var cardSpinBoostMaxDegrees: Double { 620 }
 
     var total: Double {
         max(
@@ -129,9 +134,9 @@ struct PostcardEnvelopeGiftScreen: View {
     @State private var tearProgress: CGFloat = 0
     @State private var tearHapticStep = 0
     @State private var openedAt: Date?
-    @State private var isRevealing = false
-    @State private var cardFlipBaseDegrees: Double = 0
-    @State private var cardFlipDragDegrees: Double = 0
+    @State private var cardSpinExtraDegrees: Double = 0
+    @State private var cardSpinBoostStartedAt: TimeInterval?
+    @State private var cardSpinBoostTravelDegrees: Double = 0
 
     private let anim = EnvelopeGiftAnim()
     private let config = EnvelopeRevealConfig()
@@ -184,12 +189,12 @@ struct PostcardEnvelopeGiftScreen: View {
             Group {
                 if let demoElapsed = SandboxSettings.giftElapsed {
                     frame(at: demoElapsed, stage: stage)
-                } else if isRevealing, let openedAt {
+                } else if let openedAt {
                     TimelineView(.animation) { context in
                         frame(at: context.date.timeIntervalSince(openedAt), stage: stage)
                     }
                 } else {
-                    frame(at: isOpen ? anim.total : 0, stage: stage)
+                    frame(at: 0, stage: stage)
                 }
             }
             .frame(width: width, height: height, alignment: .topLeading)
@@ -199,7 +204,7 @@ struct PostcardEnvelopeGiftScreen: View {
             motion.start()
             if SandboxSettings.giftOpened || SandboxSettings.giftElapsed != nil {
                 tearProgress = 1
-                openedAt = .distantPast
+                openedAt = Date(timeIntervalSinceNow: -anim.total)
             }
         }
         .onDisappear { motion.stop() }
@@ -254,6 +259,7 @@ struct PostcardEnvelopeGiftScreen: View {
             + landingBounceY
         let cardScale = lerp(config.cardStartScale, 1, cardScaleFlight)
         let cardRotation = 90 * Double(1 - cardTurnFlight)
+        let cardAxisRotation = cardAxisSpinDegrees(elapsed: elapsed)
 
         let dropDistance = stage.height - envelopeCenter.y + envelopeSize.height * 0.7
         let envelopeY = envelopeCenter.y + envelopeFall * dropDistance
@@ -321,7 +327,8 @@ struct PostcardEnvelopeGiftScreen: View {
                     y: cardY,
                     stage: stage,
                     envelopeBottom: envelopeY + envelopeSize.height * envelopeScale / 2,
-                    releaseProgress: cardReleaseP
+                    releaseProgress: cardReleaseP,
+                    axisRotation: cardAxisRotation
                 )
                     .zIndex(3)
 
@@ -430,7 +437,8 @@ struct PostcardEnvelopeGiftScreen: View {
         y: CGFloat,
         stage: Stage,
         envelopeBottom: CGFloat,
-        releaseProgress: CGFloat
+        releaseProgress: CGFloat,
+        axisRotation: Double
     ) -> some View {
         let visibleBottom = lerp(
             envelopeBottom - 2,
@@ -439,7 +447,7 @@ struct PostcardEnvelopeGiftScreen: View {
         )
 
         return ZStack(alignment: .topLeading) {
-            giftCard(handover: handover)
+            giftCard(handover: handover, axisRotation: axisRotation)
                 .scaleEffect(scale)
                 .rotationEffect(.degrees(rotation))
                 .position(x: stage.width / 2, y: y)
@@ -457,14 +465,13 @@ struct PostcardEnvelopeGiftScreen: View {
         }
     }
 
-    private func giftCard(handover: Double) -> some View {
+    private func giftCard(handover: Double, axisRotation: Double) -> some View {
         let tilt = TiltInput.blend(TiltInput(), liveTilt, handover)
-        let flipDegrees = cardFlipBaseDegrees + cardFlipDragDegrees
 
         return EnvelopeFlippablePostcardView(
             card: card,
             tilt: tilt,
-            flipDegrees: flipDegrees,
+            flipDegrees: axisRotation,
             backMessage: cardBackMessage
         )
             .modifier(
@@ -476,50 +483,54 @@ struct PostcardEnvelopeGiftScreen: View {
             .contentShape(
                 RoundedRectangle(cornerRadius: PostcardMetrics.cornerRadius, style: .continuous)
             )
-            .onTapGesture {
-                flipGiftCard()
-            }
-            .simultaneousGesture(giftCardFlipGesture)
+            .simultaneousGesture(giftCardSpinBoostGesture)
             .allowsHitTesting(handover > 0.98)
             .shadow(color: .black.opacity(0.18), radius: 26, y: 15)
     }
 
-    private var giftCardFlipGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                cardFlipDragDegrees = cardFlipDragRotation(for: value.translation.width)
-            }
+    private var giftCardSpinBoostGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
             .onEnded { value in
-                let distance = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                let shouldFlip = abs(predicted) > 44 || abs(distance) > 52
-                let direction: Double = predicted < 0 || (predicted == 0 && distance < 0) ? 1 : -1
-
-                if shouldFlip {
-                    flipGiftCard(direction: direction)
-                } else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-                        cardFlipDragDegrees = 0
-                    }
-                }
+                boostCardSpin(with: value)
             }
     }
 
-    private func cardFlipDragRotation(for translation: CGFloat) -> Double {
-        let progress = Ease.move(clamp01(abs(translation) / (PostcardMetrics.cardSize.width * 0.72)))
-        let direction: Double = translation < 0 ? 1 : -1
-        return direction * 150 * Double(progress)
+    private func cardAxisSpinDegrees(elapsed: TimeInterval) -> Double {
+        let spinElapsed = max(0, elapsed - anim.cardSpinDelay)
+        let base = spinElapsed * anim.cardAutoSpinDegreesPerSecond
+        let boost = cardSpinBoostOffsetDegrees(elapsed: elapsed)
+        let clockwiseDegrees = normalizedDegrees(base + cardSpinExtraDegrees + boost)
+        return -clockwiseDegrees
     }
 
-    private func flipGiftCard(direction: Double = 1) {
-        let currentStep = Int(round(cardFlipBaseDegrees / 180))
-        let step = direction >= 0 ? 1 : -1
+    private func cardSpinBoostOffsetDegrees(elapsed: TimeInterval) -> Double {
+        guard let startedAt = cardSpinBoostStartedAt else { return 0 }
 
+        let p = prog(elapsed, startedAt, anim.cardSpinBoost)
+        let eased = cubicBezierProgress(p, x1: 0.08, y1: 0.72, x2: 0.24, y2: 1.00)
+        return cardSpinBoostTravelDegrees * Double(eased)
+    }
+
+    private func boostCardSpin(with value: DragGesture.Value) {
+        guard let openedAt else { return }
+
+        let impulse = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
+        guard impulse > 18 else { return }
+
+        let nowElapsed = Date().timeIntervalSince(openedAt)
+        let previousBoost = cardSpinBoostOffsetDegrees(elapsed: nowElapsed)
+        let strength = Ease.appear(clamp01((impulse - 18) / 220))
+
+        cardSpinExtraDegrees = normalizedDegrees(cardSpinExtraDegrees + previousBoost)
+        cardSpinBoostStartedAt = nowElapsed
+        cardSpinBoostTravelDegrees = anim.cardSpinBoostMinDegrees
+            + (anim.cardSpinBoostMaxDegrees - anim.cardSpinBoostMinDegrees) * Double(strength)
         Haptics.tap()
-        withAnimation(.spring(response: 0.56, dampingFraction: 0.78)) {
-            cardFlipDragDegrees = 0
-            cardFlipBaseDegrees = Double(currentStep + step) * 180
-        }
+    }
+
+    private func normalizedDegrees(_ degrees: Double) -> Double {
+        let value = degrees.truncatingRemainder(dividingBy: 360)
+        return value >= 0 ? value : value + 360
     }
 
     private func landingBounce(_ progress: CGFloat) -> CGFloat {
@@ -636,10 +647,10 @@ struct PostcardEnvelopeGiftScreen: View {
         guard !isOpen else { return }
         tearProgress = 1
         tearHapticStep = 0
-        cardFlipBaseDegrees = 0
-        cardFlipDragDegrees = 0
+        cardSpinExtraDegrees = 0
+        cardSpinBoostStartedAt = nil
+        cardSpinBoostTravelDegrees = 0
         openedAt = Date()
-        isRevealing = true
         Haptics.impact(.rigid)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + anim.flap * 0.58) {
@@ -650,9 +661,6 @@ struct PostcardEnvelopeGiftScreen: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + anim.cardBounceDelay) {
             Haptics.impact(.light)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.total) {
-            isRevealing = false
         }
     }
 
