@@ -67,6 +67,7 @@ private struct EnvelopeRevealConfig {
     /// 0.625 — середина первой четверти нижней половины экрана.
     var envelopeVerticalPosition: CGFloat = 0.625
     var cardStartScale: CGFloat = 0.34
+    var cardFinalScale: CGFloat = 264.0 / 310.0
     var cardStartOffsetY: CGFloat = 54
     var cardLandingBounceY: CGFloat = 14
     var dropRotation: Double = 24
@@ -130,12 +131,10 @@ struct PostcardEnvelopeGiftScreen: View {
     @State private var tearHapticStep = 0
     @State private var openedAt: Date?
     @State private var isRevealing = false
-    @State private var cardFlipBaseDegrees: Double = 0
-    @State private var cardFlipDragDegrees: Double = 0
 
     private let anim = EnvelopeGiftAnim()
     private let config = EnvelopeRevealConfig()
-    private let cardBackMessage = "С днем\nрождения,\nбратан!"
+    private let messageText = "Ещё раз тебя с днём рождения и счастья!"
 
     private enum Metrics {
         static let navRow: CGFloat = 48
@@ -143,6 +142,10 @@ struct PostcardEnvelopeGiftScreen: View {
         static let buttonHeight: CGFloat = 52
         static let panelTopPadding: CGFloat = 8
         static let panelRadius: CGFloat = 24
+        static let figmaScreenHeight: CGFloat = 844
+        static let messageCenterYRatio: CGFloat = 137.5 / figmaScreenHeight
+        static let cardCenterYRatio: CGFloat = 394.5 / figmaScreenHeight
+        static let messageToCardGap: CGFloat = 36
     }
 
     private var card: Postcard {
@@ -170,7 +173,15 @@ struct PostcardEnvelopeGiftScreen: View {
             let panelHeight = Metrics.panelTopPadding + Metrics.buttonHeight
                 + proxy.safeAreaInsets.bottom
             let panelTop = height - panelHeight
-            let cardCenterY = (topInset + Metrics.navRow + panelTop) / 2
+            let finalCardHalfHeight = PostcardMetrics.cardSize.height * config.cardFinalScale / 2
+            let messageCenterY = height * Metrics.messageCenterYRatio
+            let desiredCardCenterY = height * Metrics.cardCenterYRatio
+            let minCardCenterY = messageCenterY
+                + EnvelopeGiftMessageView.size.height / 2
+                + Metrics.messageToCardGap
+                + finalCardHalfHeight
+            let maxCardCenterY = panelTop - finalCardHalfHeight - 24
+            let cardCenterY = min(maxCardCenterY, max(minCardCenterY, desiredCardCenterY))
 
             let stage = Stage(
                 width: width,
@@ -252,7 +263,7 @@ struct PostcardEnvelopeGiftScreen: View {
         let cardY = lerp(startCardY, stage.cardCenterY, cardFlight)
             + cardArcY
             + landingBounceY
-        let cardScale = lerp(config.cardStartScale, 1, cardScaleFlight)
+        let cardScale = lerp(config.cardStartScale, config.cardFinalScale, cardScaleFlight)
         let cardRotation = 90 * Double(1 - cardTurnFlight)
 
         let dropDistance = stage.height - envelopeCenter.y + envelopeSize.height * 0.7
@@ -388,6 +399,14 @@ struct PostcardEnvelopeGiftScreen: View {
             }
 
             if isOpen {
+                EnvelopeGiftMessageView(message: messageText)
+                    .position(
+                        x: stage.width / 2,
+                        y: stage.height * Metrics.messageCenterYRatio
+                    )
+                    .reveal(chromeP, rise: 8)
+                    .allowsHitTesting(false)
+                    .zIndex(7)
 
                 Group {
                     openedNavigationBar(width: stage.width)
@@ -459,14 +478,8 @@ struct PostcardEnvelopeGiftScreen: View {
 
     private func giftCard(handover: Double) -> some View {
         let tilt = TiltInput.blend(TiltInput(), liveTilt, handover)
-        let flipDegrees = cardFlipBaseDegrees + cardFlipDragDegrees
 
-        return EnvelopeFlippablePostcardView(
-            card: card,
-            tilt: tilt,
-            flipDegrees: flipDegrees,
-            backMessage: cardBackMessage
-        )
+        return GlossyPostcardView(card: card, tilt: tilt)
             .modifier(
                 CardTiltEffect(
                     pitch: tilt.rotationPitch * handover,
@@ -476,50 +489,8 @@ struct PostcardEnvelopeGiftScreen: View {
             .contentShape(
                 RoundedRectangle(cornerRadius: PostcardMetrics.cornerRadius, style: .continuous)
             )
-            .onTapGesture {
-                flipGiftCard()
-            }
-            .simultaneousGesture(giftCardFlipGesture)
-            .allowsHitTesting(handover > 0.98)
+            .allowsHitTesting(false)
             .shadow(color: .black.opacity(0.18), radius: 26, y: 15)
-    }
-
-    private var giftCardFlipGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                cardFlipDragDegrees = cardFlipDragRotation(for: value.translation.width)
-            }
-            .onEnded { value in
-                let distance = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                let shouldFlip = abs(predicted) > 44 || abs(distance) > 52
-                let direction: Double = predicted < 0 || (predicted == 0 && distance < 0) ? 1 : -1
-
-                if shouldFlip {
-                    flipGiftCard(direction: direction)
-                } else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-                        cardFlipDragDegrees = 0
-                    }
-                }
-            }
-    }
-
-    private func cardFlipDragRotation(for translation: CGFloat) -> Double {
-        let progress = Ease.move(clamp01(abs(translation) / (PostcardMetrics.cardSize.width * 0.72)))
-        let direction: Double = translation < 0 ? 1 : -1
-        return direction * 150 * Double(progress)
-    }
-
-    private func flipGiftCard(direction: Double = 1) {
-        let currentStep = Int(round(cardFlipBaseDegrees / 180))
-        let step = direction >= 0 ? 1 : -1
-
-        Haptics.tap()
-        withAnimation(.spring(response: 0.56, dampingFraction: 0.78)) {
-            cardFlipDragDegrees = 0
-            cardFlipBaseDegrees = Double(currentStep + step) * 180
-        }
     }
 
     private func landingBounce(_ progress: CGFloat) -> CGFloat {
@@ -636,8 +607,6 @@ struct PostcardEnvelopeGiftScreen: View {
         guard !isOpen else { return }
         tearProgress = 1
         tearHapticStep = 0
-        cardFlipBaseDegrees = 0
-        cardFlipDragDegrees = 0
         openedAt = Date()
         isRevealing = true
         Haptics.impact(.rigid)
@@ -727,45 +696,47 @@ struct PostcardEnvelopeGiftScreen: View {
     }
 }
 
-// MARK: - Переворачиваемая открытка
+// MARK: - Сообщение поздравителя
 
-private struct EnvelopeFlippablePostcardView: View {
-    let card: Postcard
-    let tilt: TiltInput
-    let flipDegrees: Double
-    let backMessage: String
+private struct EnvelopeGiftMessageView: View {
+    static let size = CGSize(width: 316, height: 91)
 
-    private var showsFront: Bool {
-        cos(Self.normalizedDegrees(flipDegrees) * .pi / 180) >= 0
-    }
+    let message: String
 
     var body: some View {
-        let mirroredFlipDegrees = -flipDegrees
-        let shape = RoundedRectangle(
-            cornerRadius: PostcardMetrics.cornerRadius,
-            style: .continuous
-        )
+        ZStack(alignment: .topLeading) {
+            messageBackground
+                .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: -4)
 
-        return ZStack {
-            GlossyPostcardView(card: card, tilt: tilt)
-                .opacity(showsFront ? 1 : 0)
-
-            PostcardBackFace(message: backMessage)
-                .frame(width: PostcardMetrics.cardSize.width, height: PostcardMetrics.cardSize.height)
-                .clipShape(shape)
-                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
-                .opacity(showsFront ? 0 : 1)
+            Text(message)
+                .font(WBFont.description)
+                .foregroundStyle(WBColor.textPrimary)
+                .lineLimit(1)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.86)
+                .frame(width: 252, height: WBLineHeight.description)
+                .position(x: 158, y: 58.5)
         }
-        .rotation3DEffect(
-            .degrees(mirroredFlipDegrees),
-            axis: (x: 0, y: 1, z: 0),
-            perspective: 0.58
-        )
+        .frame(width: Self.size.width, height: Self.size.height)
     }
 
-    private static func normalizedDegrees(_ degrees: Double) -> Double {
-        let value = degrees.truncatingRemainder(dividingBy: 360)
-        return value >= 0 ? value : value + 360
+    private var messageBackground: some View {
+        ZStack(alignment: .topLeading) {
+            Image("postcardMessageDot")
+                .resizable()
+                .frame(width: 8, height: 8)
+                .position(x: 228, y: 24)
+
+            Image("postcardMessageTail")
+                .resizable()
+                .frame(width: 16, height: 16)
+                .position(x: 236, y: 40)
+
+            RoundedRectangle(cornerRadius: 40, style: .continuous)
+                .fill(WBColor.bgBase)
+                .frame(width: 284, height: 41)
+                .position(x: 158, y: 58.5)
+        }
     }
 }
 
