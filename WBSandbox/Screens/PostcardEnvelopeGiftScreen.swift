@@ -567,7 +567,8 @@ struct PostcardEnvelopeGiftScreen: View {
     }
 
     private func messageCenterY(topInset: CGFloat) -> CGFloat {
-        let bubbleTopY = topInset
+        // Stage сдвинут вверх на topInset, поэтому возвращаем его для экранного отступа от navbar.
+        let bubbleTopY = topInset * 2
             + Metrics.navRow
             + Metrics.messageBubbleTopOffsetFromNav
         return bubbleTopY
@@ -1143,7 +1144,7 @@ private struct EnvelopeCutHintView: View {
     private func hintPosition(in size: CGSize) -> CGPoint {
         if config.seam.isHorizontal {
             let seamY = size.height * config.seam.position
-            let offset = size.height * (24.0 / 753.0)
+            let offset = size.height * (32.0 / 753.0)
             let y = seamY + offset + WBLineHeight.description / 2
             return CGPoint(
                 x: size.width / 2,
