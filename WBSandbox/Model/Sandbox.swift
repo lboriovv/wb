@@ -15,6 +15,7 @@ import SwiftUI
 ///     -demoGiftElapsed 0.6          кадр раскрытия подарка на конкретной секунде
 enum SandboxSettings {
     private static var defaults: UserDefaults { .standard }
+    private static var arguments: [String] { ProcessInfo.processInfo.arguments }
 
     static var showsItemSwitcher: Bool { !defaults.bool(forKey: "demoHideSwitcher") }
 
@@ -34,13 +35,13 @@ enum SandboxSettings {
 
     /// `-demoGiftOpened 1` — открыть подарок сразу раскрытым, без вылета.
     /// Нужно, чтобы снимать финальный кадр, а не гоняться за анимацией.
-    static var giftOpened: Bool { defaults.bool(forKey: "demoGiftOpened") }
+    static var giftOpened: Bool { launchBool(forKey: "demoGiftOpened") }
 
     /// `-demoGiftElapsed 0.6` — показать конкретный кадр раскрытия подарка.
     /// Удобно для эффектов вроде конверта: финал может быть правильным, а
     /// ошибка слойности живёт только в середине движения.
     static var giftElapsed: Double? {
-        guard let raw = defaults.string(forKey: "demoGiftElapsed") else { return nil }
+        guard let raw = launchValue(forKey: "demoGiftElapsed") else { return nil }
         return Double(raw)
     }
 
@@ -70,6 +71,20 @@ enum SandboxSettings {
     static var startAmount: Decimal? {
         guard let raw = defaults.string(forKey: "demoAmount") else { return nil }
         return Decimal(string: raw)
+    }
+
+    private static func launchBool(forKey key: String) -> Bool {
+        guard let raw = launchValue(forKey: key)?.lowercased() else { return false }
+        return raw == "1" || raw == "true" || raw == "yes"
+    }
+
+    private static func launchValue(forKey key: String) -> String? {
+        guard let keyIndex = arguments.firstIndex(of: "-\(key)") else { return nil }
+        let valueIndex = arguments.index(after: keyIndex)
+        guard valueIndex < arguments.endIndex else { return "1" }
+
+        let value = arguments[valueIndex]
+        return value.hasPrefix("-") ? "1" : value
     }
 }
 
