@@ -142,7 +142,7 @@ struct PostcardEnvelopeGiftScreen: View {
         static let panelTopPadding: CGFloat = 8
         static let panelRadius: CGFloat = 24
         static let figmaScreenHeight: CGFloat = 844
-        static let messageBubbleTopYRatio: CGFloat = 112.0 / figmaScreenHeight
+        static let messageBubbleTopOffsetFromNav: CGFloat = 16
         static let cardCenterYRatio: CGFloat = 394.5 / figmaScreenHeight
         static let messageToCardGap: CGFloat = 36
     }
@@ -173,7 +173,7 @@ struct PostcardEnvelopeGiftScreen: View {
                 + proxy.safeAreaInsets.bottom
             let panelTop = height - panelHeight
             let finalCardHalfHeight = PostcardMetrics.cardSize.height * config.cardFinalScale / 2
-            let messageCenterY = messageCenterY(for: height)
+            let messageCenterY = messageCenterY(topInset: topInset)
             let desiredCardCenterY = height * Metrics.cardCenterYRatio
             let minCardCenterY = messageCenterY
                 + EnvelopeGiftMessageView.size.height / 2
@@ -206,13 +206,17 @@ struct PostcardEnvelopeGiftScreen: View {
             .offset(y: -topInset)
         }
         .onAppear {
+            resetEnvelopeState()
             motion.start()
             if SandboxSettings.giftOpened || SandboxSettings.giftElapsed != nil {
                 tearProgress = 1
                 openedAt = Date(timeIntervalSinceNow: -anim.total)
             }
         }
-        .onDisappear { motion.stop() }
+        .onDisappear {
+            motion.stop()
+            resetEnvelopeState()
+        }
     }
 
     private struct Stage {
@@ -395,7 +399,7 @@ struct PostcardEnvelopeGiftScreen: View {
                 EnvelopeGiftMessageView(message: messageText)
                     .position(
                         x: stage.width / 2,
-                        y: messageCenterY(for: stage.height)
+                        y: messageCenterY(topInset: stage.topInset)
                     )
                     .reveal(chromeP, rise: 8)
                     .allowsHitTesting(false)
@@ -562,10 +566,19 @@ struct PostcardEnvelopeGiftScreen: View {
         return CGPoint(x: stage.width / 2, y: min(maxY, max(minY, desiredY)))
     }
 
-    private func messageCenterY(for height: CGFloat) -> CGFloat {
-        let bubbleTopY = height * Metrics.messageBubbleTopYRatio
-        return bubbleTopY - EnvelopeGiftMessageView.bubbleTopInset
+    private func messageCenterY(topInset: CGFloat) -> CGFloat {
+        let bubbleTopY = topInset
+            + Metrics.navRow
+            + Metrics.messageBubbleTopOffsetFromNav
+        return bubbleTopY
+            - EnvelopeGiftMessageView.bubbleTopInset
             + EnvelopeGiftMessageView.size.height / 2
+    }
+
+    private func resetEnvelopeState() {
+        tearProgress = 0
+        tearHapticStep = 0
+        openedAt = nil
     }
 
     // MARK: Жест
@@ -702,6 +715,7 @@ private struct EnvelopeGiftMessageView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             messageBackground
+                .compositingGroup()
                 .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: -4)
 
             Text(message)
@@ -1129,7 +1143,7 @@ private struct EnvelopeCutHintView: View {
     private func hintPosition(in size: CGSize) -> CGPoint {
         if config.seam.isHorizontal {
             let seamY = size.height * config.seam.position
-            let offset = size.height * (20.0 / 753.0)
+            let offset = size.height * (24.0 / 753.0)
             let y = seamY + offset + WBLineHeight.description / 2
             return CGPoint(
                 x: size.width / 2,
