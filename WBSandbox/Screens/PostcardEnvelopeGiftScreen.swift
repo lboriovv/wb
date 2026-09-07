@@ -142,7 +142,7 @@ struct PostcardEnvelopeGiftScreen: View {
         static let panelTopPadding: CGFloat = 8
         static let panelRadius: CGFloat = 24
         static let figmaScreenHeight: CGFloat = 844
-        static let messageBubbleTopOffsetFromNav: CGFloat = 16
+        static let messageTopOffsetFromNav: CGFloat = 16
         static let cardCenterYRatio: CGFloat = 394.5 / figmaScreenHeight
         static let messageToCardGap: CGFloat = 36
     }
@@ -567,12 +567,10 @@ struct PostcardEnvelopeGiftScreen: View {
     }
 
     private func messageCenterY(topInset: CGFloat) -> CGFloat {
-        // Stage сдвинут вверх на topInset, поэтому возвращаем его для экранного отступа от navbar.
-        let bubbleTopY = topInset * 2
+        let messageTopY = topInset
             + Metrics.navRow
-            + Metrics.messageBubbleTopOffsetFromNav
-        return bubbleTopY
-            - EnvelopeGiftMessageView.bubbleTopInset
+            + Metrics.messageTopOffsetFromNav
+        return messageTopY
             + EnvelopeGiftMessageView.size.height / 2
     }
 
@@ -708,8 +706,7 @@ struct PostcardEnvelopeGiftScreen: View {
 // MARK: - Сообщение поздравителя
 
 private struct EnvelopeGiftMessageView: View {
-    static let size = CGSize(width: 316, height: 91)
-    static let bubbleTopInset: CGFloat = 38
+    static let size = CGSize(width: 316, height: 59)
 
     let message: String
 
@@ -726,7 +723,7 @@ private struct EnvelopeGiftMessageView: View {
                 .allowsTightening(true)
                 .minimumScaleFactor(0.86)
                 .frame(width: 252, height: WBLineHeight.description)
-                .position(x: 158, y: 58.5)
+                .position(x: 158, y: 38.5)
         }
         .frame(width: Self.size.width, height: Self.size.height)
     }
@@ -736,17 +733,17 @@ private struct EnvelopeGiftMessageView: View {
             Image("postcardMessageDot")
                 .resizable()
                 .frame(width: 8, height: 8)
-                .position(x: 228, y: 24)
+                .position(x: 228, y: 4)
 
             Image("postcardMessageTail")
                 .resizable()
                 .frame(width: 16, height: 16)
-                .position(x: 236, y: 40)
+                .position(x: 236, y: 20)
 
             RoundedRectangle(cornerRadius: 40, style: .continuous)
                 .fill(WBColor.bgBase)
                 .frame(width: 284, height: 41)
-                .position(x: 158, y: 58.5)
+                .position(x: 158, y: 38.5)
         }
     }
 }
@@ -1144,8 +1141,8 @@ private struct EnvelopeCutHintView: View {
     private func hintPosition(in size: CGSize) -> CGPoint {
         if config.seam.isHorizontal {
             let seamY = size.height * config.seam.position
-            let offset = size.height * (32.0 / 753.0)
-            let y = seamY + offset + WBLineHeight.description / 2
+            let offset: CGFloat = 24
+            let y = seamY + offset
             return CGPoint(
                 x: size.width / 2,
                 y: min(size.height - WBLineHeight.description / 2, y)
