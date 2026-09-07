@@ -142,7 +142,7 @@ struct PostcardEnvelopeGiftScreen: View {
         static let panelTopPadding: CGFloat = 8
         static let panelRadius: CGFloat = 24
         static let figmaScreenHeight: CGFloat = 844
-        static let messageCenterYRatio: CGFloat = 137.5 / figmaScreenHeight
+        static let messageBubbleTopYRatio: CGFloat = 112.0 / figmaScreenHeight
         static let cardCenterYRatio: CGFloat = 394.5 / figmaScreenHeight
         static let messageToCardGap: CGFloat = 36
     }
@@ -173,7 +173,7 @@ struct PostcardEnvelopeGiftScreen: View {
                 + proxy.safeAreaInsets.bottom
             let panelTop = height - panelHeight
             let finalCardHalfHeight = PostcardMetrics.cardSize.height * config.cardFinalScale / 2
-            let messageCenterY = height * Metrics.messageCenterYRatio
+            let messageCenterY = messageCenterY(for: height)
             let desiredCardCenterY = height * Metrics.cardCenterYRatio
             let minCardCenterY = messageCenterY
                 + EnvelopeGiftMessageView.size.height / 2
@@ -395,7 +395,7 @@ struct PostcardEnvelopeGiftScreen: View {
                 EnvelopeGiftMessageView(message: messageText)
                     .position(
                         x: stage.width / 2,
-                        y: stage.height * Metrics.messageCenterYRatio
+                        y: messageCenterY(for: stage.height)
                     )
                     .reveal(chromeP, rise: 8)
                     .allowsHitTesting(false)
@@ -562,6 +562,12 @@ struct PostcardEnvelopeGiftScreen: View {
         return CGPoint(x: stage.width / 2, y: min(maxY, max(minY, desiredY)))
     }
 
+    private func messageCenterY(for height: CGFloat) -> CGFloat {
+        let bubbleTopY = height * Metrics.messageBubbleTopYRatio
+        return bubbleTopY - EnvelopeGiftMessageView.bubbleTopInset
+            + EnvelopeGiftMessageView.size.height / 2
+    }
+
     // MARK: Жест
 
     private func tearGesture(envelopeSize: CGSize) -> some Gesture {
@@ -689,6 +695,7 @@ struct PostcardEnvelopeGiftScreen: View {
 
 private struct EnvelopeGiftMessageView: View {
     static let size = CGSize(width: 316, height: 91)
+    static let bubbleTopInset: CGFloat = 38
 
     let message: String
 
