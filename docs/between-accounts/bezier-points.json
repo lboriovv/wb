@@ -3,89 +3,60 @@
   "startsAfterSelectionMs": 180,
   "property": "translationX",
   "unit": "pt",
-  "keyframes": [
-    { "timeMs": 0, "offset": 0 },
-    { "timeMs": 69.216, "offset": -10.330 },
-    { "timeMs": 153.333, "offset": 0 },
-    { "timeMs": 222.549, "offset": 6.371 },
-    { "timeMs": 306.667, "offset": 0 },
-    { "timeMs": 375.883, "offset": -3.929 },
-    { "timeMs": 460, "offset": 0 }
-  ],
-  "timingFunctions": [
-    [0.3333, 0.5949, 0.6667, 1],
-    [0.3333, 0, 0.6667, 0.5541],
-    [0.3333, 0.5949, 0.6667, 1],
-    [0.3333, 0, 0.6667, 0.5541],
-    [0.3333, 0.5949, 0.6667, 1],
-    [0.3333, 0, 0.6667, 1]
-  ],
   "segments": [
     {
       "id": "first-left",
       "name": "Первый ход влево",
       "startMs": 0,
-      "endMs": 69.216,
       "durationMs": 69.216,
       "fromOffsetPt": 0,
       "toOffsetPt": -10.330,
-      "cubicBezier": [0.3333, 0.5949, 0.6667, 1],
-      "points": [[0, 0], [23.072, -6.145], [46.144, -10.330], [69.216, -10.330]]
+      "cubicBezier": [0.3333, 0.5949, 0.6667, 1]
     },
     {
       "id": "first-return",
       "name": "Первое возвращение к центру",
       "startMs": 69.216,
-      "endMs": 153.333,
       "durationMs": 84.117,
       "fromOffsetPt": -10.330,
       "toOffsetPt": 0,
-      "cubicBezier": [0.3333, 0, 0.6667, 0.5541],
-      "points": [[69.216, -10.330], [97.255, -10.330], [125.294, -4.605], [153.333, 0]]
+      "cubicBezier": [0.3333, 0, 0.6667, 0.5541]
     },
     {
       "id": "right-rebound",
       "name": "Инерционный ход вправо",
       "startMs": 153.333,
-      "endMs": 222.549,
       "durationMs": 69.216,
       "fromOffsetPt": 0,
       "toOffsetPt": 6.371,
-      "cubicBezier": [0.3333, 0.5949, 0.6667, 1],
-      "points": [[153.333, 0], [176.405, 3.790], [199.477, 6.371], [222.549, 6.371]]
+      "cubicBezier": [0.3333, 0.5949, 0.6667, 1]
     },
     {
       "id": "second-return",
       "name": "Второе возвращение к центру",
       "startMs": 222.549,
-      "endMs": 306.667,
       "durationMs": 84.118,
       "fromOffsetPt": 6.371,
       "toOffsetPt": 0,
-      "cubicBezier": [0.3333, 0, 0.6667, 0.5541],
-      "points": [[222.549, 6.371], [250.588, 6.371], [278.628, 2.841], [306.667, 0]]
+      "cubicBezier": [0.3333, 0, 0.6667, 0.5541]
     },
     {
       "id": "last-left",
       "name": "Последний ход влево",
       "startMs": 306.667,
-      "endMs": 375.883,
       "durationMs": 69.216,
       "fromOffsetPt": 0,
       "toOffsetPt": -3.929,
-      "cubicBezier": [0.3333, 0.5949, 0.6667, 1],
-      "points": [[306.667, 0], [329.739, -2.338], [352.811, -3.929], [375.883, -3.929]]
+      "cubicBezier": [0.3333, 0.5949, 0.6667, 1]
     },
     {
       "id": "final-return",
       "name": "Финальное возвращение к центру",
       "startMs": 375.883,
-      "endMs": 460,
       "durationMs": 84.117,
       "fromOffsetPt": -3.929,
       "toOffsetPt": 0,
-      "cubicBezier": [0.3333, 0, 0.6667, 1],
-      "points": [[375.883, -3.929], [403.922, -3.929], [431.961, 0], [460, 0]]
+      "cubicBezier": [0.3333, 0, 0.6667, 1]
     }
   ]
 }
