@@ -93,6 +93,7 @@ enum SandboxDestination {
     case serviceStagesWork(ServiceSpec)
     /// Матрица «поле × тип оплаты».
     case serviceMatrix
+    case uniQRBetweenAccountsTransition
 }
 
 struct SandboxItem: Identifiable {
@@ -248,12 +249,19 @@ enum SandboxCatalog {
     /// `groups` остаётся рядом для сравнения с утверждённой версией.
     static let groupsWork = SandboxSection(
         id: "groups-work",
-        title: "Оплата услуг · этапы · в работе",
+        title: "Оплата и переводы",
         subtitle: "Рабочая копия для изменений",
         symbol: "wrench.and.screwdriver",
         // Рабочий сценарий не привязан к ЖКУ: тот же конструктор собирает
         // каждый тип оплаты из единой `ServiceSpec`.
-        items: ServiceCatalog.all.map { spec in
+        items: [
+            SandboxItem(
+                id: "between-accounts-transition",
+                title: "Между счетами · переход",
+                subtitle: "Перенос счета и пружинный отклик",
+                destination: .uniQRBetweenAccountsTransition
+            ),
+        ] + ServiceCatalog.all.map { spec in
             SandboxItem(
                 id: spec.id + "-work",
                 title: spec.demoName,

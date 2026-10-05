@@ -215,6 +215,12 @@ struct SandboxSectionScreen: View {
         case .serviceMatrix:
             ServiceMatrixScreen { presented = nil }
 
+        case .uniQRBetweenAccountsTransition:
+            UniQRScreen(
+                onBack: { presented = nil },
+                configuration: .betweenAccountsTransition
+            )
+
         case .iconMorph:
             NavigationStack {
                 IconMorphScreen()
