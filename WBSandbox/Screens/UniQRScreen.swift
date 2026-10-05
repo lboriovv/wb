@@ -209,6 +209,7 @@ struct UniQRConfiguration {
         recipientSubtitle: "Т-Банк",
         recipientIcon: .flower
     )
+
     static func esim(
         amount: Int,
         destination: String,
@@ -240,7 +241,6 @@ struct UniQRConfiguration {
         transferAccounts: UniQRTransferAccount.demoAccounts,
         initialTransferSourceID: "save-7654"
     )
-
 }
 
 enum UniQRRecipientIcon {
