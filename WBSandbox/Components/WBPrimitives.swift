@@ -276,6 +276,7 @@ struct TooltipArrow: View {
 enum Haptics {
     private static let light = UIImpactFeedbackGenerator(style: .light)
     private static let soft = UIImpactFeedbackGenerator(style: .soft)
+    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
 
     static func key() {
         soft.impactOccurred(intensity: 0.6)
@@ -287,8 +288,18 @@ enum Haptics {
 
     /// Отдельные удары под такты анимации исхода: вылет, прилёт, выстрел,
     /// наливание — у каждого своя жёсткость.
-    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
-        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    static func impact(
+        _ style: UIImpactFeedbackGenerator.FeedbackStyle,
+        intensity: CGFloat? = nil
+    ) {
+        let generator = style == .rigid ? rigid : UIImpactFeedbackGenerator(style: style)
+        generator.prepare()
+        if let intensity {
+            generator.impactOccurred(intensity: intensity)
+        } else {
+            generator.impactOccurred()
+        }
+        generator.prepare()
     }
 
     static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
