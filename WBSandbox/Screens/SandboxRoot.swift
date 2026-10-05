@@ -221,12 +221,6 @@ struct SandboxSectionScreen: View {
                 configuration: .betweenAccountsTransition
             )
 
-        case .uniQRBetweenAccountsTransitionOutline:
-            UniQRScreen(
-                onBack: { presented = nil },
-                configuration: .betweenAccountsTransitionWithOutline
-            )
-
         case .iconMorph:
             NavigationStack {
                 IconMorphScreen()

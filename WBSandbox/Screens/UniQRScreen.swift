@@ -14,8 +14,6 @@ struct UniQRScreen: View {
     @State private var isAccountPickerPresented = false
     @State private var sourceAttentionProgress: CGFloat = 0
     @State private var destinationAttentionProgress: CGFloat = 0
-    @State private var isSourceOutlineVisible = false
-    @State private var isDestinationOutlineVisible = false
     @State private var didInitializeTransferRoute = false
 
     private var sourceAccount: UniQRTransferAccount? {
@@ -57,8 +55,6 @@ struct UniQRScreen: View {
                         destinationAccount: destinationAccount,
                         sourceAttentionProgress: sourceAttentionProgress,
                         destinationAttentionProgress: destinationAttentionProgress,
-                        isSourceOutlineVisible: isSourceOutlineVisible,
-                        isDestinationOutlineVisible: isDestinationOutlineVisible,
                         onTapSource: { openAccountPicker(.source) },
                         onTapDestination: { openAccountPicker(.destination) },
                         onPay: onPay
@@ -89,9 +85,6 @@ struct UniQRScreen: View {
 
     private func openAccountPicker(_ slot: UniQRTransferSlot) {
         Haptics.tap()
-        if configuration.showsTransferConflictOutline {
-            setOutlineVisibility(false, for: slot)
-        }
         accountPickerSlot = slot
         withAnimation(.snappy(duration: 0.24)) {
             isAccountPickerPresented = true
@@ -145,10 +138,6 @@ struct UniQRScreen: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
             Haptics.impact(.rigid, intensity: 0.8)
         }
-        if configuration.showsTransferConflictOutline {
-            setOutlineVisibility(true, for: slot)
-        }
-
         setAttentionProgress(0, for: slot)
         DispatchQueue.main.async {
             withAnimation(.linear(duration: 0.46)) {
@@ -159,17 +148,6 @@ struct UniQRScreen: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
             withTransaction(Transaction(animation: nil)) {
                 setAttentionProgress(0, for: slot)
-            }
-        }
-    }
-
-    private func setOutlineVisibility(_ isVisible: Bool, for slot: UniQRTransferSlot) {
-        withAnimation(.easeOut(duration: isVisible ? 0.08 : 0.12)) {
-            switch slot {
-            case .source:
-                isSourceOutlineVisible = isVisible
-            case .destination:
-                isDestinationOutlineVisible = isVisible
             }
         }
     }
@@ -221,7 +199,6 @@ struct UniQRConfiguration {
     var buttonSubtitle: String = "Без комиссии"
     var transferAccounts: [UniQRTransferAccount] = []
     var initialTransferSourceID: String?
-    var showsTransferConflictOutline: Bool = false
 
     static let qrDemo = UniQRConfiguration(
         title: "Оплатить по QR-коду",
@@ -232,7 +209,6 @@ struct UniQRConfiguration {
         recipientSubtitle: "Т-Банк",
         recipientIcon: .flower
     )
-
     static func esim(
         amount: Int,
         destination: String,
@@ -265,21 +241,6 @@ struct UniQRConfiguration {
         initialTransferSourceID: "save-7654"
     )
 
-    static let betweenAccountsTransitionWithOutline = UniQRConfiguration(
-        title: "Перевести",
-        amount: 1_000,
-        showsBonus: false,
-        showsPaymentSwitch: false,
-        recipientTitle: "Куда",
-        recipientSubtitle: "Выберите счёт",
-        recipientIcon: .emptySlot,
-        routeStyle: .betweenAccountsTransition,
-        buttonTitle: "Продолжить",
-        buttonSubtitle: "",
-        transferAccounts: UniQRTransferAccount.demoAccounts,
-        initialTransferSourceID: "save-7654",
-        showsTransferConflictOutline: true
-    )
 }
 
 enum UniQRRecipientIcon {
@@ -871,8 +832,6 @@ private struct UniQRDownSection: View {
     let destinationAccount: UniQRTransferAccount?
     let sourceAttentionProgress: CGFloat
     let destinationAttentionProgress: CGFloat
-    let isSourceOutlineVisible: Bool
-    let isDestinationOutlineVisible: Bool
     let onTapSource: () -> Void
     let onTapDestination: () -> Void
     let onPay: () -> Void
@@ -892,8 +851,6 @@ private struct UniQRDownSection: View {
                 destinationAccount: destinationAccount,
                 sourceAttentionProgress: sourceAttentionProgress,
                 destinationAttentionProgress: destinationAttentionProgress,
-                isSourceOutlineVisible: isSourceOutlineVisible,
-                isDestinationOutlineVisible: isDestinationOutlineVisible,
                 onTapSource: onTapSource,
                 onTapDestination: onTapDestination
             )
@@ -961,8 +918,6 @@ private struct UniQRRouteCards: View {
     let destinationAccount: UniQRTransferAccount?
     let sourceAttentionProgress: CGFloat
     let destinationAttentionProgress: CGFloat
-    let isSourceOutlineVisible: Bool
-    let isDestinationOutlineVisible: Bool
     let onTapSource: () -> Void
     let onTapDestination: () -> Void
 
@@ -981,8 +936,7 @@ private struct UniQRRouteCards: View {
                         UniQRTransferAccountCard(
                             account: sourceAccount,
                             placeholderTitle: "Откуда",
-                            attentionProgress: sourceAttentionProgress,
-                            showsAttentionOutline: isSourceOutlineVisible
+                            attentionProgress: sourceAttentionProgress
                         )
                     }
                     .buttonStyle(.plain)
@@ -995,8 +949,7 @@ private struct UniQRRouteCards: View {
                         UniQRTransferAccountCard(
                             account: destinationAccount,
                             placeholderTitle: "Куда",
-                            attentionProgress: destinationAttentionProgress,
-                            showsAttentionOutline: isDestinationOutlineVisible
+                            attentionProgress: destinationAttentionProgress
                         )
                     }
                     .buttonStyle(.plain)
@@ -1027,25 +980,9 @@ private struct UniQRTransferAccountCard: View {
     let account: UniQRTransferAccount?
     let placeholderTitle: String
     var attentionProgress: CGFloat = 0
-    var showsAttentionOutline = false
-
-    private static let attentionAccent = Color(hex: 0xFF7E22)
-    private static let attentionBorderOpacity: CGFloat = 0.48
 
     private var background: Color {
         account?.background ?? WBColor.bgLevel2
-    }
-
-    private var attentionLevel: CGFloat {
-        account == nil && showsAttentionOutline ? 1 : 0
-    }
-
-    private var pulseLevel: CGFloat {
-        guard account == nil else { return 0 }
-        let progress = attentionProgress.uniQRClampedUnit
-        let attack = min(progress / 0.08, 1)
-        let release = progress < 0.52 ? 1 : max(0, 1 - (progress - 0.52) / 0.48)
-        return min(1, attack) * release
     }
 
     private var iconPop: CGFloat {
@@ -1068,19 +1005,6 @@ private struct UniQRTransferAccountCard: View {
                 .font(WBFont.description)
                 .foregroundStyle(WBColor.textPrimary)
                 .lineLimit(1)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: WBRadius.x4, style: .continuous)
-                .fill(Self.attentionAccent.opacity(0.035 * pulseLevel))
-                .allowsHitTesting(false)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: WBRadius.x4, style: .continuous)
-                .strokeBorder(
-                    Self.attentionAccent.opacity(Self.attentionBorderOpacity * attentionLevel),
-                    lineWidth: attentionLevel > 0.01 ? 1 : 0
-                )
-                .allowsHitTesting(false)
         }
     }
 }
@@ -1127,7 +1051,7 @@ private struct UniQRRecipientIconView: View {
         switch icon {
         case .flower:
             RoundedRectangle(cornerRadius: WBSpace.x2, style: .continuous)
-                .fill(Color(hex: 0xFF7E22))
+                .fill(WBColor.ctaTopUp)
                 .frame(width: 24, height: 24)
                 .overlay {
                     Image("dsFlowerTulip16")

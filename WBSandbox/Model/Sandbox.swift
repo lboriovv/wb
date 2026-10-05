@@ -94,7 +94,6 @@ enum SandboxDestination {
     /// Матрица «поле × тип оплаты».
     case serviceMatrix
     case uniQRBetweenAccountsTransition
-    case uniQRBetweenAccountsTransitionOutline
 }
 
 struct SandboxItem: Identifiable {
@@ -261,12 +260,6 @@ enum SandboxCatalog {
                 title: "Между счетами · переход",
                 subtitle: "Перенос счета и пружинный отклик",
                 destination: .uniQRBetweenAccountsTransition
-            ),
-            SandboxItem(
-                id: "between-accounts-transition-outline",
-                title: "Между счетами · обводка",
-                subtitle: "Пружинный отклик и обводка пустой плашки",
-                destination: .uniQRBetweenAccountsTransitionOutline
             ),
         ] + ServiceCatalog.all.map { spec in
             SandboxItem(
