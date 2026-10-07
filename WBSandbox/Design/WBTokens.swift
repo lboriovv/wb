@@ -49,10 +49,11 @@ enum WBColor {
     static let textSecondary = Color.dynamic(light: 0x808093, dark: 0xAEAEBF) // --mo-text-icon-secondary
     static let textAccent = Color.dynamic(light: 0x038F5D, dark: 0x35D690)    // --mo-text-icon-accent (каретка суммы)
     static let controlsSecondary = Color.dynamic(light: 0x8F8FA3, dark: 0xB5B5C6) // --mo-controls-text-icon-secondary-default
+    static let strokeSecondary = Color.dynamic(light: 0xE0E0EB, dark: 0x4B4B56) // --mo-stroke-secondary
     /// wbWallet/actionAccent — подпись способа оплаты в шите.
     static let walletActionAccent = Color.dynamic(light: 0x34214D, dark: 0xD9C4FF)
     /// --mo-radioButton-content-off-default — обводка невыбранного радио.
-    static let radioOff = Color.dynamic(light: 0xE0E0EB, dark: 0x4B4B56)
+    static let radioOff = strokeSecondary
     /// Крестик закрытия шита.
     static let controlsTertiary = Color.dynamic(light: 0xCBCBD9, dark: 0x777786)
 
@@ -289,6 +290,7 @@ enum WBSpace {
     static let x2: CGFloat = 8
     static let x3: CGFloat = 12
     static let x4: CGFloat = 16
+    static let x6: CGFloat = 24
     static let x10: CGFloat = 40
     static let x11: CGFloat = 44
 }

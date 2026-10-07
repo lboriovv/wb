@@ -180,6 +180,7 @@ struct GlossyPostcardView: View {
     let tilt: TiltInput
     /// Яркость блика. Гасим у соседних карточек: там блика в макете нет.
     var glare: Double = 1
+    var cornerRadius: CGFloat = PostcardMetrics.cornerRadius
 
     var body: some View {
         PostcardFace(card: card)
@@ -187,7 +188,7 @@ struct GlossyPostcardView: View {
             .overlay { FarSideShade(tilt: tilt) }
             .overlay { SpecularGlare(tilt: tilt, strength: glare) }
             .clipShape(
-                RoundedRectangle(cornerRadius: PostcardMetrics.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             )
     }
 }

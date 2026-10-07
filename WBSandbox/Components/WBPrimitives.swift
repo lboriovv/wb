@@ -9,6 +9,21 @@ struct RowIconView: View {
 
     var body: some View {
         switch icon {
+        case .flag(let value):
+            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                .fill(WBColor.bgMinus1)
+                .frame(width: size, height: size)
+                .overlay {
+                    Text(value)
+                        .font(.system(size: size * 0.76))
+                        .scaleEffect(x: 1.18, y: 1.18)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+                .accessibilityHidden(true)
+        case .placeholder:
+            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                .fill(WBColor.textSecondary.opacity(0.18))
+                .frame(width: size, height: size)
         case .asset(let name):
             // Экспорт из макета: подложка и скругление уже внутри картинки.
             Image(name)
@@ -154,6 +169,77 @@ struct WBBadgeView: View {
     }
 }
 
+struct WBBonusBadgeView: View {
+    let points: Int
+
+    @State private var displayedPoints: Double
+
+    init(points: Int) {
+        self.points = points
+        _displayedPoints = State(initialValue: Double(points))
+    }
+
+    private var isActive: Bool { points > 0 }
+
+    private var background: Color {
+        isActive ? WBColor.badgeBerryBg : WBColor.bgMinus1
+    }
+
+    private var foreground: Color {
+        isActive ? WBColor.badgeBerryText : WBColor.textSecondary
+    }
+
+    private var coinBackground: Color {
+        isActive ? WBColor.badgeCoinBg : WBColor.separator
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text("+")
+
+            RollingIntegerText(value: displayedPoints)
+                .frame(minWidth: 15, alignment: .trailing)
+
+            Text("вб")
+                .font(WBFont.caption)
+                .foregroundStyle(isActive ? .white : WBColor.textSecondary)
+                .padding(.horizontal, 4)
+                .frame(height: 16)
+                .background(coinBackground, in: Capsule())
+        }
+        .font(WBFont.descriptionAccent)
+        .monospacedDigit()
+        .foregroundStyle(foreground)
+        .padding(.leading, 7)
+        .padding(.trailing, 3)
+        .frame(height: 21)
+        .background(background, in: Capsule())
+        .animation(.snappy(duration: 0.25), value: isActive)
+        .onAppear {
+            displayedPoints = Double(points)
+        }
+        .onChange(of: points) { _, newValue in
+            withAnimation(.easeInOut(duration: 0.7)) {
+                displayedPoints = Double(newValue)
+            }
+        }
+        .accessibilityLabel("Начислим \(points) вб")
+    }
+}
+
+private struct RollingIntegerText: View, Animatable {
+    var value: Double
+
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View {
+        Text("\(Int(value.rounded()))")
+    }
+}
+
 // MARK: - Навбар
 
 struct WBNavBar: View {
@@ -276,22 +362,56 @@ struct TooltipArrow: View {
 enum Haptics {
     private static let light = UIImpactFeedbackGenerator(style: .light)
     private static let soft = UIImpactFeedbackGenerator(style: .soft)
+    private static let medium = UIImpactFeedbackGenerator(style: .medium)
+    private static let heavy = UIImpactFeedbackGenerator(style: .heavy)
+    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
 
-    static func key() {
-        soft.impactOccurred(intensity: 0.6)
+    static func key(intensity: CGFloat = 0.6) {
+        soft.impactOccurred(intensity: intensity)
+        soft.prepare()
     }
 
     static func tap() {
         light.impactOccurred()
+        light.prepare()
     }
 
     /// Отдельные удары под такты анимации исхода: вылет, прилёт, выстрел,
     /// наливание — у каждого своя жёсткость.
-    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
-        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    static func impact(
+        _ style: UIImpactFeedbackGenerator.FeedbackStyle,
+        intensity: CGFloat? = nil
+    ) {
+        let generator = generator(for: style)
+        generator.prepare()
+        if let intensity {
+            generator.impactOccurred(intensity: intensity)
+        } else {
+            generator.impactOccurred()
+        }
+        generator.prepare()
     }
 
     static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
         UINotificationFeedbackGenerator().notificationOccurred(type)
+    }
+
+    private static func generator(
+        for style: UIImpactFeedbackGenerator.FeedbackStyle
+    ) -> UIImpactFeedbackGenerator {
+        switch style {
+        case .light:
+            light
+        case .medium:
+            medium
+        case .heavy:
+            heavy
+        case .soft:
+            soft
+        case .rigid:
+            rigid
+        @unknown default:
+            UIImpactFeedbackGenerator(style: style)
+        }
     }
 }

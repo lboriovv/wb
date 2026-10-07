@@ -85,22 +85,62 @@ struct SandboxSectionScreen: View {
         }
     }
 
+    private struct ResolvedChildGroup: Identifiable {
+        let group: SandboxSectionGroup
+        let sections: [SandboxSection]
+
+        var id: String { group.id }
+    }
+
+    private var childGroups: [ResolvedChildGroup] {
+        (section?.childGroups ?? []).compactMap { group in
+            let sections = group.sectionIDs.compactMap { childID in
+                SandboxCatalog.sections.first { $0.id == childID }
+            }
+            return sections.isEmpty ? nil : ResolvedChildGroup(group: group, sections: sections)
+        }
+    }
+
+    private var itemGroups: [SandboxItemGroup] {
+        section?.itemGroups ?? []
+    }
+
     var body: some View {
         List {
-            ForEach(childSections) { child in
-                NavigationLink(value: child.id) {
-                    sectionRow(child)
+            if childGroups.isEmpty {
+                ForEach(childSections) { child in
+                    NavigationLink(value: child.id) {
+                        sectionRow(child)
+                    }
+                }
+            } else {
+                ForEach(childGroups) { childGroup in
+                    Section {
+                        ForEach(childGroup.sections) { child in
+                            NavigationLink(value: child.id) {
+                                sectionRow(child)
+                            }
+                        }
+                    } header: {
+                        Text(childGroup.group.title)
+                    }
                 }
             }
 
-            ForEach(section?.items ?? []) { item in
-                Button {
-                    openCount += 1
-                    presented = item
-                } label: {
-                    row(item)
+            if itemGroups.isEmpty {
+                ForEach(section?.items ?? []) { item in
+                    itemButton(item)
                 }
-                .buttonStyle(.plain)
+            } else {
+                ForEach(itemGroups) { itemGroup in
+                    Section {
+                        ForEach(itemGroup.items) { item in
+                            itemButton(item)
+                        }
+                    } header: {
+                        Text(itemGroup.title)
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -120,6 +160,16 @@ struct SandboxSectionScreen: View {
             guard parts.count > 1, parts[0] == sectionID else { return }
             presented = section?.items.first { $0.id == parts[1] }
         }
+    }
+
+    private func itemButton(_ item: SandboxItem) -> some View {
+        Button {
+            openCount += 1
+            presented = item
+        } label: {
+            row(item)
+        }
+        .buttonStyle(.plain)
     }
 
     private func row(_ item: SandboxItem) -> some View {
@@ -168,7 +218,11 @@ struct SandboxSectionScreen: View {
     private func screen(for item: SandboxItem) -> some View {
         switch item.destination {
         case .transaction(let config):
-            TransactionHost(config: config, onBack: { presented = nil })
+            if config.operation == .byPhone {
+                PhoneTransferFlowScreen(baseConfig: config, onBack: { presented = nil })
+            } else {
+                TransactionHost(config: config, onBack: { presented = nil })
+            }
 
         case .outcome(let scenario):
             OutcomeScreen(
@@ -214,6 +268,46 @@ struct SandboxSectionScreen: View {
 
         case .serviceMatrix:
             ServiceMatrixScreen { presented = nil }
+
+        case .pipDesignSystem:
+            PipDesignSystemScreen { presented = nil }
+
+        case .uniQR:
+            UniQRScreen(
+                onBack: { presented = nil },
+                bonusAnimationStyle: .rollOnly
+            )
+
+        case .uniQRLossParticles:
+            UniQRScreen(
+                onBack: { presented = nil },
+                bonusAnimationStyle: .lossParticles
+            )
+
+        case .uniQRGainTop:
+            UniQRScreen(
+                onBack: { presented = nil },
+                bonusAnimationStyle: .gainFromTop
+            )
+
+        case .uniQRFreeAmount:
+            UniQRScreen(
+                onBack: { presented = nil },
+                bonusAnimationStyle: .gainFromTop,
+                configuration: .freeAmount
+            )
+
+        case .uniQRBetweenAccountsTransition:
+            UniQRScreen(
+                onBack: { presented = nil },
+                configuration: .betweenAccountsTransition
+            )
+
+        case .esim:
+            ESIMScreen(onBack: { presented = nil })
+
+        case .activationCodeStates:
+            ActivationCodeStatesScreen(onClose: { presented = nil })
 
         case .iconMorph:
             NavigationStack {

@@ -108,6 +108,22 @@ enum SandboxDestination {
     case serviceStagesWork(ServiceSpec)
     /// Матрица «поле × тип оплаты».
     case serviceMatrix
+    /// Эталонные компоненты ПиП, повторённые с Figma.
+    case pipDesignSystem
+    /// UniQR — ввод суммы по QR-коду.
+    case uniQR
+    /// UniQR v2 — с потерей бонусных ВБ при выборе СБП.
+    case uniQRLossParticles
+    /// UniQR v3 — ВБ прилетают сверху при начислении.
+    case uniQRGainTop
+    /// UniQR v3 — свободная сумма с барабаном кешбэка.
+    case uniQRFreeAmount
+    /// Между своими счетами на актуальном транзакционном экране.
+    case uniQRBetweenAccountsTransition
+    /// ESIM — выбор страны на 3D-глобусе.
+    case esim
+    /// Apple Card — раскадровка блока кода активации.
+    case activationCodeStates
 }
 
 struct SandboxItem: Identifiable {
@@ -123,19 +139,37 @@ struct SandboxSection: Identifiable {
     var subtitle: String?
     var symbol: String
     var items: [SandboxItem]
+    /// Внутренние группы сценариев. Нужны для длинных рабочих разделов, где
+    /// сценарии остаются на одном уровне, но читаются лучше с заголовками.
+    var itemGroups: [SandboxItemGroup] = []
     /// Вложенные папки. Если они есть, раздел показывает сначала их, а не сценарии.
     var childSectionIDs: [String] = []
+    /// Заголовки для вложенных папок. Нужны, когда раздел содержит несколько
+    /// смысловых групп, но сами дочерние разделы остаются самостоятельными.
+    var childGroups: [SandboxSectionGroup] = []
+}
+
+struct SandboxItemGroup: Identifiable {
+    var id: String
+    var title: String
+    var items: [SandboxItem]
+}
+
+struct SandboxSectionGroup: Identifiable {
+    var id: String
+    var title: String
+    var sectionIDs: [String]
 }
 
 enum SandboxCatalog {
     /// Разделы на первом уровне песочницы.
     static let rootSections: [SandboxSection] = [
-        pip, postcards, ideas, morph,
+        pip, activationCode, esim, postcards, ideas, morph,
     ]
 
     /// Полный каталог: нужен маршрутизации, в том числе для вложенных разделов.
     static let sections: [SandboxSection] = [
-        pip, transfer, postcards, services, groups, groupsWork, ideas, outcomes, morph,
+        pip, pipDesignSystem, activationCode, transfer, esim, postcards, services, groups, groupsWork, ideas, outcomes, morph,
     ]
 
     // MARK: ПиП
@@ -149,7 +183,49 @@ enum SandboxCatalog {
         subtitle: "Переводы, оплаты и исходы операций",
         symbol: "arrow.left.arrow.right.circle",
         items: [],
-        childSectionIDs: ["transfer", "services", "groups-work", "groups", "outcome"]
+        childSectionIDs: ["pip-design-system", "groups-work", "outcome", "transfer", "services", "groups"],
+        childGroups: [
+            SandboxSectionGroup(
+                id: "main",
+                title: "Основной вариант",
+                sectionIDs: ["pip-design-system", "groups-work", "outcome"]
+            ),
+            SandboxSectionGroup(
+                id: "other",
+                title: "Остальное",
+                sectionIDs: ["transfer", "services", "groups"]
+            ),
+        ]
+    )
+
+    static let pipDesignSystem = SandboxSection(
+        id: "pip-design-system",
+        title: "Дизайн-система",
+        subtitle: "Эталон Top и stiky bar из Figma",
+        symbol: "square.grid.2x2",
+        items: [
+            SandboxItem(
+                id: "top-stiky-bar",
+                title: "Top + stiky bar",
+                subtitle: "48516:73991 · 48486:49048",
+                destination: .pipDesignSystem
+            ),
+        ]
+    )
+
+    static let activationCode = SandboxSection(
+        id: "activation-code",
+        title: "Код активации",
+        subtitle: "Apple Card: скрыт, загрузка и открыт",
+        symbol: "eye",
+        items: [
+            SandboxItem(
+                id: "states",
+                title: "Варианты загрузки",
+                subtitle: "41052:189089 · Comment 55829:696783",
+                destination: .activationCodeStates
+            ),
+        ]
     )
 
     // MARK: 1. Перевод
@@ -169,6 +245,23 @@ enum SandboxCatalog {
                 destination: .transaction(config)
             )
         }
+    )
+
+    // MARK: ESIM
+
+    static let esim = SandboxSection(
+        id: "esim",
+        title: "ESIM",
+        subtitle: "3D-глобус и выбор страны",
+        symbol: "simcard.2",
+        items: [
+            SandboxItem(
+                id: "globe",
+                title: "Страны на глобусе",
+                subtitle: "Hexed polygons · globe.gl",
+                destination: .esim
+            ),
+        ]
     )
 
     // MARK: 2. Открытка к переводу
@@ -263,22 +356,129 @@ enum SandboxCatalog {
     /// `groups` остаётся рядом для сравнения с утверждённой версией.
     static let groupsWork = SandboxSection(
         id: "groups-work",
-        title: "Оплата услуг · этапы · в работе",
+        title: "Оплата и переводы",
         subtitle: "Рабочая копия для изменений",
         symbol: "wrench.and.screwdriver",
         // Рабочий сценарий не привязан к ЖКУ: тот же конструктор собирает
         // каждый тип оплаты из единой `ServiceSpec`.
-        items: ServiceCatalog.all.map { spec in
-            SandboxItem(
-                id: spec.id + "-work",
-                title: spec.demoName,
-                subtitle: "\(spec.allFields.count) полей"
-                    + (spec.bills.isEmpty ? "" : " · \(spec.bills.count) начислений")
-                    + (spec.resolvedProvider == nil ? "" : " · получателя ищем по БИК"),
-                destination: .serviceStagesWork(spec)
-            )
-        }
+        items: groupsWorkItems,
+        itemGroups: groupsWorkItemGroups
     )
+
+    private static var groupsWorkItems: [SandboxItem] {
+        groupsWorkItemGroups.flatMap(\.items)
+    }
+
+    private static let groupsWorkItemGroups: [SandboxItemGroup] = [
+        SandboxItemGroup(
+            id: "accounts",
+            title: "Между счетами",
+            items: [
+                SandboxItem(
+                    id: "between-accounts-transition",
+                    title: "Между счетами · переход",
+                    subtitle: "Пустое «Куда», перенос счёта и shake",
+                    destination: .uniQRBetweenAccountsTransition
+                ),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "qr",
+            title: "Оплата по QR-коду",
+            items: [
+                SandboxItem(
+                    id: "uniqr",
+                    title: "UniQR · вариант 1",
+                    subtitle: "Скрутка счётчика и обесцвечивание",
+                    destination: .uniQR
+                ),
+                SandboxItem(
+                    id: "uniqr-loss-particles",
+                    title: "UniQR · вариант 2",
+                    subtitle: "Скрутка + ВБ вылетают вниз из бейджа",
+                    destination: .uniQRLossParticles
+                ),
+                SandboxItem(
+                    id: "uniqr-gain-top",
+                    title: "UniQR · вариант 3",
+                    subtitle: "При начислении ВБ залетают сверху",
+                    destination: .uniQRGainTop
+                ),
+                SandboxItem(
+                    id: "uniqr-free-amount",
+                    title: "UniQR · вариант свободная сумма",
+                    subtitle: "Ввод суммы, кешбэк + барабан на пересчёте",
+                    destination: .uniQRFreeAmount
+                ),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "phone-transfer",
+            title: "Перевод по номеру",
+            items: [
+                SandboxItem(
+                    id: "by-phone",
+                    title: "Перевод по номеру телефона",
+                    subtitle: "Обычный перевод человеку",
+                    destination: .transaction(TransferModes.byPhone)
+                ),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "requisites",
+            title: "Оплата по реквизитам",
+            items: [
+                workItem(for: ServiceCatalog.requisitesIndividual),
+                workItem(for: ServiceCatalog.requisitesLegal),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "government",
+            title: "Госплатежи",
+            items: [
+                workItem(for: ServiceCatalog.requisitesBudget),
+                workItem(for: ServiceCatalog.uin),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "utilities",
+            title: "ЖКУ",
+            items: [
+                workItem(for: ServiceCatalog.mosenergo),
+                workItem(for: ServiceCatalog.eirc),
+                workItem(for: ServiceCatalog.zhkuMoscow),
+                workItem(for: ServiceCatalog.utilitiesTatarstan),
+                workItem(for: ServiceCatalog.utilitiesBashkiria),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "telecom",
+            title: "Интернет и телеком",
+            items: [
+                workItem(for: ServiceCatalog.internetOneStep),
+                workItem(for: ServiceCatalog.internetBalance),
+            ]
+        ),
+        SandboxItemGroup(
+            id: "transport",
+            title: "Транспорт",
+            items: [
+                workItem(for: ServiceCatalog.parking),
+                workItem(for: ServiceCatalog.troika),
+            ]
+        ),
+    ]
+
+    private static func workItem(for spec: ServiceSpec) -> SandboxItem {
+        SandboxItem(
+            id: spec.id + "-work",
+            title: spec.demoName,
+            subtitle: "\(spec.allFields.count) полей"
+                + (spec.bills.isEmpty ? "" : " · \(spec.bills.count) начислений")
+                + (spec.resolvedProvider == nil ? "" : " · получателя ищем по БИК"),
+            destination: .serviceStagesWork(spec)
+        )
+    }
 
     // MARK: 5. Идеи
 

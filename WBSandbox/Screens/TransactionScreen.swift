@@ -118,6 +118,7 @@ struct TransactionScreen: View {
             AmountZone(
                 input: model.amount,
                 badges: model.amountBadges,
+                bonusPoints: model.qrBonusPoints,
                 message: config.message,
                 showsCaret: model.isAmountEditable,
                 isCommentFilled: model.isCommentFilled,
