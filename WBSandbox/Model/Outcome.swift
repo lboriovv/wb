@@ -221,6 +221,10 @@ struct OutcomeScenario: Identifiable {
     var badge: BadgeSpec?
     /// Полное содержимое кадра, если демо отличается от сценария перевода.
     var override: SuccessConfig?
+    /// Текст навбара во время отправки. По умолчанию сохраняет прежний сценарий.
+    var loaderTitle: String = "Отправляем перевод"
+    /// Необязательная замена итогового заголовка для оплат и других не-переводов.
+    var resultTitle: String?
 
     var success: SuccessConfig { override ?? source.success }
 }

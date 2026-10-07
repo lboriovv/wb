@@ -200,7 +200,7 @@ struct OutcomeScreen: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: stage.topInset)
                 WBNavBar(
-                    title: isLoading ? "Отправляем перевод" : outcome.title,
+                    title: isLoading ? scenario.loaderTitle : (scenario.resultTitle ?? outcome.title),
                     subtitle: config.subtitle,
                     leading: isLoading ? .none : .close,
                     onLeading: onClose

@@ -285,6 +285,21 @@ struct BankOption: Identifiable, Equatable {
         self.title = title
         self.bic = bic
     }
+
+    var icon: RowIcon {
+        switch id {
+        case "tbank":
+            return .asset("icTBank")
+        case "sber":
+            return .symbol(name: "checkmark", tint: .white, background: Color(hex: 0x21A038))
+        case "alfa":
+            return .symbol(name: "a", tint: .white, background: Color(hex: 0xEF3124))
+        case "vtb":
+            return .symbol(name: "building.columns.fill", tint: .white, background: Color(hex: 0x0A5CC4))
+        default:
+            return .symbol(name: "building.columns.fill", tint: .white, background: WBColor.brandBlue)
+        }
+    }
 }
 
 /// Счётчик: своя строка с предыдущим показанием. Предыдущее показание — не

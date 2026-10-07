@@ -15,14 +15,12 @@ struct ServiceStagesWorkScreen: View {
     @State private var isResumeMode = false
     @State private var isAmountPresented = false
     @State private var selectedBillForDetails: ChargeBill?
-    @State private var brandHeaderTop: CGFloat = 44
     @State private var bankSearchQuery = ""
     @State private var activeRequisitesGroupID = ""
     @State private var activeRequisitesFieldID = ""
     @State private var isReviewingRequisitesGroup = false
     @State private var isReviewingAllBudgetData = false
     @State private var overviewReturnGroupID = ""
-    @State private var hintField: FormField?
     @State private var requisitesViewport: CGFloat = 0
     @FocusState private var focus: String?
 
@@ -31,9 +29,60 @@ struct ServiceStagesWorkScreen: View {
         stages.first { $0.id == activeStageID } ?? stages.first
     }
 
+    private var scenarioTopType: PipFigmaTop.TopType {
+        if model.spec.usesGroupedRequisites
+            || (model.hasDeferredProvider && !model.isProviderResolved) {
+            return .requisites
+        }
+        return .provider
+    }
+
+    private var scenarioTopTheme: PipFigmaTop.Theme {
+        topTheme(for: model.spec)
+    }
+
+    private var scenarioTop: some View {
+        PipFigmaTop(
+            type: scenarioTopType,
+            showsScanButton: showsReceiptScanner,
+            titleText: model.headerProvider.title,
+            theme: scenarioTopTheme,
+            onBack: goBack,
+            onClose: onBack,
+            onScanReceipt: scanReceipt
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    private var scenarioTopBackgroundHeight: CGFloat {
+        (showsReceiptScanner ? 168 : 96) + 24
+    }
+
+    private var stickyBarType: PipFigmaStickyBar.BarType {
+        focus == nil ? .default : .systemKeyboard
+    }
+
+    private var flowProgressFraction: CGFloat {
+        stageProgressFraction(stages: stages, activeStageID: activeStageID)
+    }
+
+    private var showsFlowProgress: Bool {
+        let fieldSteps = model.spec.allFields.filter { field in
+            guard field.attachesTo == nil else { return false }
+            switch field.kind {
+            case .input, .choice, .meters, .services:
+                return true
+            case .toggle, .info:
+                return false
+            }
+        }.count
+        let billsStep = model.spec.bills.isEmpty ? 0 : 1
+        return fieldSteps + billsStep > 1
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            brandHeader
+            scenarioTop
             if isReviewingAllBudgetData {
                 budgetAllDataBody
             } else if model.spec.usesGroupedRequisites {
@@ -44,13 +93,20 @@ struct ServiceStagesWorkScreen: View {
                 flowBody
             }
         }
-        // Градиент намеренно на 20 pt заходит под белый контейнер. В его углах
-        // остаётся виден тот же бренд поставщика, а не обрезанный прямоугольник.
+        .ignoresSafeArea(edges: focus == nil ? [.top, .bottom] : .top)
         .background(alignment: .top) {
-            providerGradient
-                .ignoresSafeArea(edges: .top)
+            GeometryReader { proxy in
+                PipFigmaTopBackground(
+                    theme: scenarioTopTheme,
+                    width: proxy.size.width,
+                    height: scenarioTopBackgroundHeight
+                )
+                .frame(height: scenarioTopBackgroundHeight, alignment: .top)
+            }
         }
-        .background(WBColor.bgMinus1, ignoresSafeAreaEdges: .all)
+        .background(WBColor.bgBase, ignoresSafeAreaEdges: .all)
+        .animation(.snappy(duration: 0.24), value: focus == nil)
+        .animation(.snappy(duration: 0.24), value: showsReceiptScanner)
         .fullScreenCover(isPresented: $isAmountPresented) {
             ServiceAmountScreen(
                 model: model,
@@ -75,11 +131,6 @@ struct ServiceStagesWorkScreen: View {
                 }
             )
         }
-        .sheet(item: $hintField) { field in
-            BudgetFieldHintSheet(field: field)
-                .presentationDetents([.height(230)])
-                .presentationCornerRadius(WBRadius.x6)
-        }
         .onAppear(perform: configureEntry)
     }
 
@@ -103,13 +154,22 @@ struct ServiceStagesWorkScreen: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
-            WBPrimaryButton(title: "Продолжить", titleSize: 17) { continueFlow() }
-                .padding(.horizontal, WBSpace.x4)
-                .padding(.top, WBSpace.x4)
-                .padding(.bottom, 12)
-                .background(WBColor.bgBase)
+            PipFigmaStickyBar(
+                type: stickyBarType,
+                title: model.spec.ctaTitle,
+                progressFraction: flowProgressFraction,
+                showsProgress: showsFlowProgress,
+                onContinue: continueFlow
+            )
+            .frame(maxWidth: .infinity)
         }
-        .background(TopRoundedRectangle(radius: WBRadius.x5).fill(WBColor.bgBase))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            PipTopCornersShape(radius: WBRadius.x6)
+                .fill(WBColor.bgBase)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .clipShape(PipTopCornersShape(radius: WBRadius.x6))
     }
 
     // MARK: Группы реквизитов
@@ -180,52 +240,109 @@ struct ServiceStagesWorkScreen: View {
         model.spec.id == "requisites-budget" && section.id == "recipient"
     }
 
-    /// Сканер относится только к самому первому вопросу. После перехода к
-    /// поиску банка верхняя часть становится компактной, как в Figma.
-    private var showsBudgetScanner: Bool {
-        guard model.spec.id == "requisites-budget",
-              let group = activeRequisitesGroup,
-              group.id == "bank" else { return false }
-        return activeField(in: group)?.id == "account"
+    /// Сканирование — часть верхнего компонента, а не содержимого белой секции.
+    /// Показываем кнопку только когда текущий вопрос реально можно заполнить
+    /// данными из квитанции.
+    private var showsReceiptScanner: Bool {
+        receiptScanField != nil
     }
 
-    private var showsBudgetProgressIsland: Bool {
-        model.spec.id == "requisites-budget"
-            && model.isProviderResolved
-            && !isReviewingAllBudgetData
+    private var receiptScanField: FormField? {
+        if isReviewingAllBudgetData { return nil }
+
+        if model.spec.usesGroupedRequisites {
+            guard let group = activeRequisitesGroup,
+                  !(isBudgetRecipientGroup(group) && activeRequisitesFieldID.isEmpty),
+                  let field = activeField(in: group),
+                  canScanReceipt(for: field)
+            else { return nil }
+            return field
+        }
+
+        guard !isResumeMode,
+              let field = activeStage?.field,
+              canScanReceipt(for: field)
+        else { return nil }
+        return field
     }
 
-    private var requisitesProgressFieldIDs: [String] {
-        requisitesGroups.flatMap { section in
-            interactiveFields(in: section).map(\.id)
-        }
+    private func canScanReceipt(for field: FormField) -> Bool {
+        guard case .input = field.kind, !field.suggestions.isEmpty else { return false }
+        if field.facet == .identifier { return true }
+        return model.spec.id == "requisites-budget" && field.id == "account"
     }
 
-    private var currentRequisitesProgressFieldID: String? {
-        guard let group = activeRequisitesGroup else {
-            return requisitesProgressFieldIDs.first
+    private func scanReceipt() {
+        Haptics.tap()
+        if let field = receiptScanField,
+           let saved = field.suggestions.first {
+            model.setValue(saved, for: field)
         }
-
-        let fields = interactiveFields(in: group)
-        if showsWholeBudgetGroup(group)
-            || (isBudgetRecipientGroup(group) && activeRequisitesFieldID.isEmpty) {
-            return fields.first { !model.isFilled($0) && $0.isRequired }?.id
-                ?? fields.first { !model.isFilled($0) }?.id
-                ?? fields.last?.id
-        }
-
-        return activeField(in: group)?.id ?? fields.last?.id
     }
 
     private var requisitesProgress: RequisitesProgress {
-        let ids = requisitesProgressFieldIDs
-        guard !ids.isEmpty else {
-            return RequisitesProgress(current: 1, total: 1)
+        guard model.spec.usesGroupedRequisites else {
+            return RequisitesProgress(fraction: 0)
         }
 
-        let index = currentRequisitesProgressFieldID.flatMap { ids.firstIndex(of: $0) }
-            ?? max(ids.count - 1, 0)
-        return RequisitesProgress(current: min(index + 1, ids.count), total: ids.count)
+        let bankFields = requisitesGroups
+            .first { $0.id == "bank" }
+            .map(interactiveFields(in:))
+            ?? []
+        let completedBank: Int
+        if let activeGroup = activeRequisitesGroup, activeGroup.id == "bank" {
+            let currentID = activeField(in: activeGroup)?.id
+            completedBank = bankFields.firstIndex { $0.id == currentID } ?? 0
+        } else {
+            completedBank = bankFields.count
+        }
+        let bankProgress = CGFloat(min(completedBank, 2)) * 0.125
+
+        guard completedBank >= bankFields.count, model.isProviderResolved else {
+            return RequisitesProgress(fraction: bankProgress)
+        }
+
+        let restGroups = requisitesGroups
+            .filter { $0.id != "bank" }
+        let restUnitCount = restGroups.reduce(0) { $0 + progressUnitCount(in: $1) }
+        guard restUnitCount > 0 else {
+            return RequisitesProgress(fraction: 0.25)
+        }
+
+        let completedRest: Int
+        if isReviewingAllBudgetData {
+            completedRest = restUnitCount
+        } else if let activeGroup = activeRequisitesGroup,
+                  let activeIndex = restGroups.firstIndex(where: { $0.id == activeGroup.id }) {
+            let completedBefore = restGroups.prefix(activeIndex)
+                .reduce(0) { $0 + progressUnitCount(in: $1) }
+            let activeFields = interactiveFields(in: activeGroup)
+            let completedInside: Int
+            if isReviewingRequisitesGroup {
+                completedInside = progressUnitCount(in: activeGroup)
+            } else if isBudgetRecipientGroup(activeGroup), activeRequisitesFieldID.isEmpty {
+                completedInside = 0
+            } else if showsWholeBudgetGroup(activeGroup) {
+                completedInside = 0
+            } else if let currentID = activeField(in: activeGroup)?.id {
+                completedInside = activeFields.firstIndex { $0.id == currentID } ?? 0
+            } else {
+                completedInside = activeFields.count
+            }
+            completedRest = completedBefore + completedInside
+        } else {
+            completedRest = 0
+        }
+
+        let restFraction = CGFloat(completedRest) / CGFloat(restUnitCount)
+        return RequisitesProgress(fraction: 0.25 + 0.75 * restFraction)
+    }
+
+    private func progressUnitCount(in section: FormSection) -> Int {
+        if isBudgetRecipientGroup(section) || showsWholeBudgetGroup(section) {
+            return 1
+        }
+        return interactiveFields(in: section).count
     }
 
     private var groupedRequisitesBody: some View {
@@ -257,65 +374,22 @@ struct ServiceStagesWorkScreen: View {
                 .onChange(of: proxy.size.height) { _, size in requisitesViewport = size }
             }
 
-            VStack(spacing: WBSpace.x3) {
-                if showsBudgetProgressIsland {
-                    budgetProgressIsland
-                }
-                WBPrimaryButton(
-                    title: "Продолжить",
-                    titleSize: 17
-                ) { continueGroupedRequisites() }
-            }
-            .padding(.horizontal, WBSpace.x4)
-            .padding(.top, WBSpace.x3)
-            .padding(.bottom, 12)
-            .background(TopRoundedRectangle(radius: 28).fill(WBColor.bgBase))
+            PipFigmaStickyBar(
+                type: stickyBarType,
+                title: model.spec.ctaTitle,
+                progressFraction: requisitesProgress.fraction,
+                onContinue: continueGroupedRequisites,
+                onStepsTap: openBudgetDataOverview
+            )
+            .frame(maxWidth: .infinity)
         }
-        .background(TopRoundedRectangle(radius: WBRadius.x5).fill(WBColor.bgBase))
-        .clipShape(TopRoundedRectangle(radius: WBRadius.x5))
-    }
-
-    private var budgetProgressIsland: some View {
-        let progress = requisitesProgress
-        let progressWidth: CGFloat = 54
-        return Button {
-            openBudgetDataOverview()
-        } label: {
-            HStack(spacing: WBSpace.x2) {
-                Text("Шаг \(progress.current)")
-                    .font(WBFont.descriptionAccent)
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.white.opacity(0.20))
-                    Capsule()
-                        .fill(WBColor.textAccent)
-                        .frame(width: max(CGFloat(8), progressWidth * progress.fraction))
-                }
-                .frame(width: progressWidth, height: 4)
-
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(WBColor.textPrimary)
-                    .frame(width: 30, height: 30)
-                    .background(.white, in: Circle())
-                    .accessibilityHidden(true)
-            }
-            .padding(.leading, WBSpace.x3)
-            .padding(.trailing, 5)
-            .frame(height: 42)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(WBColor.ctaFill)
-                    .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 5)
-            }
-            .contentShape(Capsule(style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            PipTopCornersShape(radius: WBRadius.x6)
+                .fill(WBColor.bgBase)
+                .ignoresSafeArea(edges: .bottom)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Шаг \(progress.current). Показать все данные")
+        .clipShape(PipTopCornersShape(radius: WBRadius.x6))
     }
 
     /// Ровно тот же паттерн, что в базовых «Оплата услуг · этапы»: завершённый
@@ -433,48 +507,35 @@ struct ServiceStagesWorkScreen: View {
 
     private func budgetRecipientOverviewRow(_ field: FormField, in section: FormSection) -> some View {
         let value = model.values[field.id] ?? ""
-        return HStack(spacing: 0) {
-            Button {
-                Haptics.tap()
-                activeRequisitesGroupID = section.id
-                activeRequisitesFieldID = field.id
-                focusGroupedInput(after: 180)
-            } label: {
-                Group {
-                    if value.isEmpty {
+        return Button {
+            Haptics.tap()
+            activeRequisitesGroupID = section.id
+            activeRequisitesFieldID = field.id
+            focusGroupedInput(after: 180)
+        } label: {
+            Group {
+                if value.isEmpty {
+                    Text(field.label)
+                        .font(WBFont.body)
+                        .foregroundStyle(WBColor.textSecondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(field.label)
-                            .font(WBFont.body)
+                            .font(WBFont.description)
                             .foregroundStyle(WBColor.textSecondary)
-                    } else {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(field.label)
-                                .font(WBFont.description)
-                                .foregroundStyle(WBColor.textSecondary)
-                            Text(value)
-                                .font(WBFont.body)
-                                .foregroundStyle(WBColor.textPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                        Text(value)
+                            .font(WBFont.body)
+                            .foregroundStyle(WBColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, WBSpace.x4)
-                .frame(height: 64)
             }
-            .buttonStyle(.plain)
-
-            Button {
-                Haptics.tap()
-                hintField = field
-            } label: {
-                Image(systemName: "info.circle.fill")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(WBColor.textSecondary)
-                    .frame(width: 48, height: 64)
-            }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, WBSpace.x4)
+            .frame(height: 64)
         }
+        .buttonStyle(.plain)
         .background(
             WBColor.bgMinus1,
             in: RoundedRectangle(cornerRadius: WBRadius.x5, style: .circular)
@@ -572,14 +633,24 @@ struct ServiceStagesWorkScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            WBPrimaryButton(title: "Продолжить", titleSize: 17) { continueBudgetOverview() }
-                .padding(.horizontal, WBSpace.x4)
-                .padding(.top, WBSpace.x2)
-                .padding(.bottom, 12)
-                .background(WBColor.bgBase)
+            PipFigmaStickyBar(
+                type: stickyBarType,
+                title: model.spec.ctaTitle,
+                progressFraction: requisitesProgress.fraction,
+                onContinue: continueBudgetOverview,
+                onStepsTap: {
+                    Haptics.tap()
+                }
+            )
+            .frame(maxWidth: .infinity)
         }
-        .background(TopRoundedRectangle(radius: WBRadius.x5).fill(WBColor.bgBase))
-        .clipShape(TopRoundedRectangle(radius: WBRadius.x5))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            PipTopCornersShape(radius: WBRadius.x6)
+                .fill(WBColor.bgBase)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .clipShape(PipTopCornersShape(radius: WBRadius.x6))
     }
 
     private func continueBudgetOverview() {
@@ -647,129 +718,41 @@ struct ServiceStagesWorkScreen: View {
         model.answer(for: PaymentStage(id: field.id, title: field.label, kind: .field(field))) ?? "—"
     }
 
-    // MARK: Брендированная шапка
-
-    /// Узел 48052:140411: шапка поставщика — это один фон с навигацией и строкой
-    /// получателя. Белый контейнер начинается поверх неё со скругления 20 pt.
-    private var brandHeader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 44, height: 48)
-                }
-                .buttonStyle(.plain)
-
-                Spacer(minLength: 0)
-
-                Button(action: onBack) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 44, height: 48)
-                }
-                .buttonStyle(.plain)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, WBSpace.x1)
-
-            HStack(spacing: WBSpace.x4) {
-                // Пока реквизиты не проверены, это не поставщик и не аватарка
-                // получателя: в нейтральной шапке оставляем только текст.
-                if !(model.hasDeferredProvider && !model.isProviderResolved)
-                    || model.spec.id == "requisites-budget" {
-                    RowIconView(icon: model.headerProvider.icon, size: 40)
-                }
-                HStack(spacing: 6) {
-                    Text(model.headerProvider.title)
-                        .font(WBFont.title3)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
-                    Button(action: onOpenSpec) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, WBSpace.x4)
-            .padding(.bottom, WBSpace.x4)
-            .frame(height: 64, alignment: .bottom)
-
-            if showsBudgetScanner {
-                Button {
-                    Haptics.tap()
-                    if let account = model.spec.allFields.first(where: { $0.id == "account" }),
-                       let saved = account.suggestions.first {
-                        model.setValue(saved, for: account)
-                    }
-                } label: {
-                    HStack(spacing: WBSpace.x2) {
-                        Image(systemName: "viewfinder")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Сканировать квитанцию")
-                            .font(WBFont.bodyAccent)
-                    }
-                    .foregroundStyle(WBColor.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(WBColor.bgBase, in: RoundedRectangle(cornerRadius: WBRadius.x5, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, WBSpace.x4)
-                .padding(.top, WBSpace.x4)
-                .padding(.bottom, 24)
-            }
-        }
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        brandHeaderTop = proxy.frame(in: .global).minY
-                    }
-            }
-        }
-    }
-
-    /// Бренд шапки строится из фона аватарки поставщика, а не из названия или
-    /// конкретного сценария. Центральный стоп — исходный цвет; верхний и нижний
-    /// сдвинуты на ±20 пунктов lightness в HSL.
-    @ViewBuilder
-    private var providerGradient: some View {
-        let scannerHeight: CGFloat = showsBudgetScanner ? 92 : 0
-        let height = brandHeaderTop + 48 + 64 + scannerHeight + 20
-        if model.spec.id == "requisites-budget", !model.isProviderResolved {
-            BudgetRequisitesEntryGradient(height: height)
-                .frame(height: height)
-                .overlay(Color.black.opacity(0.20))
-        } else {
-            let base = model.hasDeferredProvider && !model.isProviderResolved
-                ? Color(hex: 0x6E7079)
-                : model.headerProvider.icon.tint
-            ProviderBrandGradient(base: base, height: height, coreRadius: 0)
-                .frame(height: height)
-                .overlay(Color.black.opacity(0.20))
-        }
-    }
-
     // MARK: Возврат к черновику
 
     private var resumeBody: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: WBSpace.x3) {
-                Text("Продолжим оплату")
-                    .font(WBFont.hauss(24, .bold))
-                    .foregroundStyle(WBColor.textPrimary)
-                    .padding(.horizontal, WBSpace.x4)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: WBSpace.x3) {
+                    Text("Продолжим оплату")
+                        .font(WBFont.hauss(24, .bold))
+                        .foregroundStyle(WBColor.textPrimary)
+                        .padding(.horizontal, WBSpace.x4)
 
-                ForEach(stages) { stage in resumeStage(stage) }
+                    ForEach(stages) { stage in resumeStage(stage) }
+                }
+                .padding(.vertical, WBSpace.x4)
             }
-            .padding(.vertical, WBSpace.x4)
+
+            PipFigmaStickyBar(
+                type: stickyBarType,
+                title: model.spec.ctaTitle,
+                progressFraction: flowProgressFraction,
+                showsProgress: showsFlowProgress,
+                onContinue: continueFlow,
+                onStepsTap: {
+                    Haptics.tap()
+                }
+            )
+            .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            PipTopCornersShape(radius: WBRadius.x6)
+                .fill(WBColor.bgBase)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .clipShape(PipTopCornersShape(radius: WBRadius.x6))
     }
 
     private func resumeStage(_ stage: PaymentStage) -> some View {
@@ -799,7 +782,6 @@ struct ServiceStagesWorkScreen: View {
 
             if isActive {
                 stageContent(stage)
-                WBPrimaryButton(title: "Продолжить", titleSize: 17) { continueFlow() }
             }
         }
         .padding(WBSpace.x4)
@@ -864,79 +846,27 @@ struct ServiceStagesWorkScreen: View {
 
     private func input(_ field: FormField, _ format: FieldFormat) -> some View {
         let error = model.error(for: field, focused: focus)
-        let isFocused = focus == field.id
-        let inputError = Color(hex: 0xFF0F4F)
-        // По контуру эталона: поле высотой 52 имеет circular-радиус 20 pt.
-        // Это не continuous-кривая, которой пользуются карточки приложения.
-        let inputShape = RoundedRectangle(cornerRadius: WBRadius.x5, style: .circular)
-        // Контейнер повторяет структуру узла 48052:141100: scanner — сосед
-        // списка поля, между ними SPx3 = 12; внутри самого списка — SPx2 = 8.
         return VStack(alignment: .leading, spacing: WBSpace.x3) {
-            if field.facet == .identifier, !field.suggestions.isEmpty {
-                Button {
-                    Haptics.tap()
-                    model.setValue(field.suggestions[0], for: field)
-                } label: {
-                    Text("Сканировать квитанцию")
-                        .font(WBFont.bodyAccent)
-                        .foregroundStyle(WBColor.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(WBColor.bgMinus1, in: RoundedRectangle(cornerRadius: WBRadius.x4, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-
             VStack(alignment: .leading, spacing: WBSpace.x2) {
-                if isBudgetLabeledInput(field) {
-                    budgetLabeledInputControl(field, format: format, error: error)
+                if isLargeInput(field) {
+                    PipLargeInput(
+                        field: field,
+                        format: format,
+                        value: inputBinding(for: field),
+                        focus: $focus,
+                        placeholder: inputPlaceholder(for: field),
+                        error: error
+                    )
                 } else {
-                    HStack(spacing: 0) {
-                        TextField("", text: Binding(
-                            get: { model.values[field.id] ?? "" },
-                            set: { model.setValue($0, for: field) }
-                        ))
-                        .textFieldStyle(.plain)
-                        .font(WBFont.hauss(17, .regular))
-                        .keyboardType(format.keyboard)
-                        .tint(WBColor.textAccent)
-                        .focused($focus, equals: field.id)
-                        .frame(height: 20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, WBSpace.x4)
-
-                        if field.hint != nil {
-                            Button {
-                                Haptics.tap()
-                                hintField = field
-                            } label: {
-                                Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 17, weight: .regular))
-                                    .foregroundStyle(WBColor.textSecondary)
-                                    .frame(width: 48, height: 52)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Color.clear.frame(width: WBSpace.x4)
-                        }
-                    }
-                    .frame(height: 52)
-                    .background(WBColor.bgMinus1, in: inputShape)
-                    .overlay {
-                        inputShape
-                            .strokeBorder(
-                                error != nil ? inputError : (isFocused ? WBColor.textPrimary : .clear),
-                                lineWidth: 1
-                            )
-                    }
+                    PipInput(
+                        field: field,
+                        format: format,
+                        value: inputBinding(for: field),
+                        focus: $focus,
+                        placeholder: inputPlaceholder(for: field),
+                        error: error
+                    )
                 }
-            if let error {
-                Text(error)
-                    .font(WBFont.description)
-                    .foregroundStyle(inputError)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: WBLineHeight.description, alignment: .topLeading)
-            }
 
             // Быстрый ввод всегда подписываем названием самого реквизита: это
             // «ваш код» для ЕПД и «из недавних» для перевода. Не переносим текст
@@ -983,78 +913,67 @@ struct ServiceStagesWorkScreen: View {
         }
     }
 
-    private func isBudgetLabeledInput(_ field: FormField) -> Bool {
-        model.spec.id == "requisites-budget"
-            && ["recipient-inn", "recipient-name", "recipient-kpp", "kbk", "uin", "oktmo", "purpose"]
-                .contains(field.id)
+    private func inputBinding(for field: FormField) -> Binding<String> {
+        Binding(
+            get: { model.values[field.id] ?? "" },
+            set: { model.setValue($0, for: field) }
+        )
     }
 
-    private func budgetLabeledInputControl(
-        _ field: FormField,
-        format: FieldFormat,
-        error: String?
-    ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: WBRadius.x5, style: .circular)
-        let value = model.values[field.id] ?? ""
-        let floatsLabel = focus == field.id || !value.isEmpty
-        return HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: floatsLabel ? 1 : 0) {
-                if floatsLabel {
-                    Text(field.label)
-                        .font(WBFont.description)
-                        .foregroundStyle(error == nil ? WBColor.textSecondary : Color(hex: 0xFF0F4F))
-                }
-                TextField(floatsLabel ? "" : field.label, text: Binding(
-                    get: { model.values[field.id] ?? "" },
-                    set: { model.setValue($0, for: field) }
-                ))
-                .textFieldStyle(.plain)
-                .font(WBFont.body)
-                .foregroundStyle(WBColor.textPrimary)
-                .keyboardType(format.keyboard)
-                .tint(WBColor.textAccent)
-                .focused($focus, equals: field.id)
-                .frame(height: 22)
-            }
-            .padding(.leading, WBSpace.x4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func inputPlaceholder(for field: FormField) -> String {
+        visibleInputCount(for: field) > 1 ? field.label : ""
+    }
 
-            Button {
-                Haptics.tap()
-                hintField = field
-            } label: {
-                Image(systemName: "info.circle.fill")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(WBColor.textSecondary)
-                    .frame(width: 48, height: 64)
-            }
-            .buttonStyle(.plain)
+    private func visibleInputCount(for field: FormField) -> Int {
+        guard model.spec.usesGroupedRequisites,
+              let section = activeRequisitesGroup,
+              groupFields(section).contains(where: { $0.id == field.id })
+        else { return 1 }
+
+        let visibleFields: [FormField]
+        if showsWholeBudgetGroup(section) {
+            visibleFields = interactiveFields(in: section)
+        } else if let active = activeField(in: section) {
+            visibleFields = groupFields(section).filter { $0.id == active.id || $0.attachesTo == active.id }
+        } else {
+            visibleFields = []
         }
-        .frame(height: 64)
-        .background(WBColor.bgMinus1, in: shape)
-        .overlay {
-            shape.strokeBorder(
-                error != nil ? Color(hex: 0xFF0F4F) : (focus == field.id ? WBColor.textPrimary : .clear),
-                lineWidth: 1
-            )
-        }
+
+        return visibleFields.filter(isPlainInput).count
+    }
+
+    private func isPlainInput(_ field: FormField) -> Bool {
+        guard case .input = field.kind else { return false }
+        return field.bankOptions.isEmpty
+    }
+
+    private func isLargeInput(_ field: FormField) -> Bool {
+        if field.facet == .purpose { return true }
+        if field.id == "recipient-name" { return true }
+        return field.label.localizedCaseInsensitiveContains("наименование получателя")
     }
 
     private func budgetRecipientMatches(_ field: FormField) -> some View {
         VStack(spacing: 0) {
             ForEach(field.suggestions, id: \.self) { inn in
-                Button {
-                    Haptics.tap()
-                    applyQuickSuggestion(inn, for: field)
-                } label: {
-                    StageOperationLine(
-                        title: inn == "7730160480"
-                            ? "ГБОУ ОБРАЗОВАТЕЛЬНЫЙ ЦЕНТР «ПРОТОН»"
-                            : "ГБОУ ШКОЛА № 1465",
-                        subtitle: "ИНН \(inn)"
-                    )
-                }
-                .buttonStyle(.plain)
+                DetailRowView(
+                    row: DetailRow(
+                        id: "recipient-\(inn)",
+                        icon: .symbol(
+                            name: "building.2.fill",
+                            tint: .white,
+                            background: Color(hex: inn == "7730160480" ? 0x7557D3 : 0x2176C7)
+                        ),
+                        top: .primary(
+                            inn == "7730160480"
+                                ? "ГБОУ ОБРАЗОВАТЕЛЬНЫЙ ЦЕНТР «ПРОТОН»"
+                                : "ГБОУ ШКОЛА № 1465"
+                        ),
+                        bottom: .secondary("ИНН \(inn)"),
+                        showsChevron: false
+                    ),
+                    onTap: { applyQuickSuggestion(inn, for: field) }
+                )
             }
         }
     }
@@ -1146,7 +1065,6 @@ struct ServiceStagesWorkScreen: View {
     /// и запускает определение получателя по паре «счёт + банк».
     private func bankSearch(_ field: FormField) -> some View {
         let error = model.error(for: field, focused: focus)
-        let inputShape = RoundedRectangle(cornerRadius: WBRadius.x5, style: .circular)
         let results = field.bankOptions.filter { bank in
             let query = bankSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             return query.isEmpty
@@ -1155,65 +1073,57 @@ struct ServiceStagesWorkScreen: View {
         }
 
         return VStack(alignment: .leading, spacing: WBSpace.x2) {
-            HStack(spacing: 0) {
-                TextField("Название банка или БИК", text: $bankSearchQuery)
-                    .textFieldStyle(.plain)
-                    .font(WBFont.hauss(17, .regular))
-                    .keyboardType(.default)
-                    .tint(WBColor.textAccent)
-                    .focused($focus, equals: field.id)
-                    .frame(height: 20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, WBSpace.x4)
-
-                if field.hint != nil {
-                    Button {
-                        Haptics.tap()
-                        hintField = field
-                    } label: {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(WBColor.textSecondary)
-                            .frame(width: 48, height: 52)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-                .frame(height: 52)
-                .background(WBColor.bgMinus1, in: inputShape)
-                .overlay {
-                    inputShape.strokeBorder(
-                        error == nil ? (focus == field.id ? WBColor.textPrimary : .clear) : Color(hex: 0xFF0F4F),
-                        lineWidth: 1
-                    )
-                }
-
-            if let error {
-                Text(error)
-                    .font(WBFont.description)
-                    .foregroundStyle(Color(hex: 0xFF0F4F))
-            }
+            PipInput(
+                field: field,
+                format: .text(1...120),
+                value: bankSearchBinding(for: field),
+                focus: $focus,
+                placeholder: inputPlaceholder(for: field),
+                error: error
+            )
 
             VStack(spacing: 0) {
                 ForEach(results) { bank in
-                    Button {
-                        Haptics.tap()
-                        bankSearchQuery = bank.title
-                        model.pickBank(bank, for: field)
-                        if model.spec.usesGroupedRequisites {
-                            advanceGroupedSelection()
-                        } else if let next = model.stage(after: field.id) {
-                            activate(next)
-                        } else {
-                            openAmount()
+                    DetailRowView(
+                        row: DetailRow(
+                            id: bank.id,
+                            icon: bank.icon,
+                            top: .primary(bank.title),
+                            bottom: .secondary("БИК \(bank.bic)"),
+                            showsChevron: false
+                        ),
+                        onTap: {
+                            bankSearchQuery = bank.title
+                            model.pickBank(bank, for: field)
+                            if model.spec.usesGroupedRequisites {
+                                advanceGroupedSelection()
+                            } else if let next = model.stage(after: field.id) {
+                                activate(next)
+                            } else {
+                                openAmount()
+                            }
                         }
-                    } label: {
-                        StageOperationLine(title: bank.title, subtitle: "БИК \(bank.bic)")
-                    }
-                    .buttonStyle(.plain)
+                    )
                 }
             }
         }
+    }
+
+    private func bankSearchBinding(for field: FormField) -> Binding<String> {
+        Binding(
+            get: { bankSearchQuery },
+            set: { query in
+                bankSearchQuery = query
+                let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let bank = field.bankOptions.first(where: {
+                    $0.bic == normalized || $0.title.compare(normalized, options: .caseInsensitive) == .orderedSame
+                }) {
+                    model.pickBank(bank, for: field)
+                } else {
+                    model.setValue("", for: field)
+                }
+            }
+        )
     }
 
     private var billPeriodSuggestions: [PeriodSuggestion] {
@@ -1639,13 +1549,41 @@ struct ServiceStagesWorkScreen: View {
     }
 }
 
-private struct RequisitesProgress {
-    let current: Int
-    let total: Int
+@MainActor
+private func stageProgressFraction(stages: [PaymentStage], activeStageID: String) -> CGFloat {
+    guard !stages.isEmpty,
+          let currentIndex = stages.firstIndex(where: { $0.id == activeStageID })
+    else { return 0 }
+    return min(max(CGFloat(currentIndex) / CGFloat(stages.count), 0), 1)
+}
 
-    var fraction: CGFloat {
-        guard total > 0 else { return 0 }
-        return min(max(CGFloat(current) / CGFloat(total), 0), 1)
+private func topTheme(for spec: ServiceSpec) -> PipFigmaTop.Theme {
+    if spec.usesGroupedRequisites {
+        return .requisites
+    }
+
+    let category = spec.category.components(separatedBy: " · ").first ?? spec.category
+    switch category {
+    case "ЖКХ":
+        return .utilities
+    case "Интернет и ТВ":
+        return .telecom
+    case "Транспорт":
+        return .transport
+    case "Госплатежи":
+        return .government
+    case "Переводы по реквизитам":
+        return .requisites
+    default:
+        return .requisites
+    }
+}
+
+private struct RequisitesProgress {
+    let fraction: CGFloat
+
+    init(fraction: CGFloat) {
+        self.fraction = min(max(fraction, 0), 1)
     }
 }
 
@@ -1708,15 +1646,19 @@ private struct ChargeDetailsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            PipFigmaTop(
+                type: .provider,
+                showsScanButton: false,
+                titleText: provider.title,
+                theme: topTheme(for: model.spec),
+                onBack: onBack,
+                onClose: onClose
+            )
+            .frame(maxWidth: .infinity)
+
             content
         }
-        .background(alignment: .top) {
-            ProviderBrandGradient(base: provider.icon.tint, height: 176, coreRadius: 0)
-                .frame(height: 176)
-                .overlay(Color.black.opacity(0.20))
-                .ignoresSafeArea(edges: .top)
-        }
+        .ignoresSafeArea(edges: [.top, .bottom])
         .background(WBColor.bgMinus1, ignoresSafeAreaEdges: .all)
         .sheet(isPresented: $isAboutSheetPresented) {
             ChargeAboutSheet(
@@ -1728,38 +1670,6 @@ private struct ChargeDetailsScreen: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
-    }
-
-    private var header: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 44, height: 48)
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 0)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 44, height: 48)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, WBSpace.x1)
-
-            HStack(spacing: WBSpace.x4) {
-                RowIconView(icon: provider.icon, size: 40)
-                Text(provider.title)
-                    .font(WBFont.title3)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, WBSpace.x4)
-            .padding(.bottom, WBSpace.x4)
-            .frame(height: 64, alignment: .bottom)
-        }
-        .foregroundStyle(.white)
     }
 
     private var content: some View {
@@ -1826,23 +1736,28 @@ private struct ChargeDetailsScreen: View {
                 .padding(.bottom, WBSpace.x4)
             }
 
-            VStack(spacing: WBSpace.x3) {
-                WBPrimaryButton(title: "Продолжить", titleSize: 17) {
+            PipFigmaStickyBar(
+                type: .default,
+                title: "Продолжить",
+                progressFraction: 1,
+                onContinue: {
                     Haptics.tap()
                     onContinue()
+                },
+                onStepsTap: {
+                    Haptics.tap()
+                    onBack()
                 }
-                Button("Выбрать другой счёт", action: onBack)
-                    .font(WBFont.bodyAccent)
-                    .foregroundStyle(WBColor.textPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .buttonStyle(.plain)
-            }
-            .padding(.horizontal, WBSpace.x4)
-            .padding(.top, WBSpace.x4)
-            .padding(.bottom, 12)
-            .background(WBColor.bgBase)
+            )
+            .frame(maxWidth: .infinity)
         }
-        .background(TopRoundedRectangle(radius: WBRadius.x5).fill(WBColor.bgBase))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            PipTopCornersShape(radius: WBRadius.x6)
+                .fill(WBColor.bgBase)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .clipShape(PipTopCornersShape(radius: WBRadius.x6))
     }
 
     @ViewBuilder
@@ -1981,28 +1896,6 @@ private struct BudgetRequisitesEntryGradient: View {
 }
 
 /// Белый контент в макете только верхними углами заходит на брендированную шапку.
-private struct TopRoundedRectangle: Shape {
-    let radius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX + radius, y: rect.minY),
-            control: CGPoint(x: rect.minX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY + radius),
-            control: CGPoint(x: rect.maxX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Фигура один в один повторяет `gradientTransform` узла 48346:48544:
 /// центр в середине верхней грани, RX = 386,75 и RY = 176 для фрейма 390×176.
 /// `coreRadius` — радиус центрального блика до начала растяжения, в точках по Y.

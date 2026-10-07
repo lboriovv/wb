@@ -62,6 +62,13 @@ final class TransactionModel {
 
     var feeBadge: BadgeSpec { config.fee.badge(for: amountValue) }
 
+    /// Начисление WB-баллов за оплату QR собственным рельсом банка. На чужих
+    /// рельсах бейдж остаётся, но скручивается в ноль — так видна упущенная выгода.
+    var qrBonusPoints: Int? {
+        guard config.operation == .qr else { return nil }
+        return selectedRail == .direct ? 35 : 0
+    }
+
     /// Счета, которые показываем в шите: только доступные.
     var availableAccounts: [Account] {
         config.accounts.filter(\.isAvailable)

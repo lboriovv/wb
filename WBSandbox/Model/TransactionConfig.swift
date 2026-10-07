@@ -7,6 +7,11 @@ import SwiftUI
 // MARK: - Иконки
 
 enum RowIcon {
+    /// Системный флаг страны. Unicode-флаг сохраняет правильные пропорции и
+    /// остается четким при любом размере плитки.
+    case flag(String)
+    /// Нейтральная заглушка для контента, чей финальный ассет еще не выбран.
+    case placeholder
     /// Готовая 40×40 иконка, выгруженная из макета (бренд-логотипы).
     ///
     /// Выгружать только вектором и только сам слой иконки. Экспорт узла целиком
@@ -45,7 +50,7 @@ enum RowIcon {
         case .logo(_, _, let background, _, _): background
         case .symbol(_, _, let background): background
         case .brandedAsset(_, let tint): tint
-        case .asset: WBColor.brandBlue
+        case .asset, .flag, .placeholder: WBColor.brandBlue
         }
     }
 

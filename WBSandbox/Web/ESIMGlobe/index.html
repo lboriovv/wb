@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    >
+    <style>
+        :root {
+            --motion-ui-duration: 580ms;
+            --motion-micro-duration: 200ms;
+            --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        html,
+        body,
+        #globeStage,
+        #globeViz {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #eee5ff;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        body {
+            position: fixed;
+            inset: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        }
+
+        #globeStage {
+            --stage-offset-y: 0px;
+            position: absolute;
+            inset: 0;
+            overflow: visible;
+            transform: translate3d(0, var(--stage-offset-y), 0);
+            transition: transform var(--motion-ui-duration) var(--motion-ease);
+            will-change: transform;
+        }
+
+        #globeViz {
+            position: absolute;
+            inset: 0;
+        }
+
+        #stickers {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .globe-sticker {
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: grid;
+            width: 32px;
+            height: 32px;
+            place-items: center;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            opacity: 0;
+            transform-origin: center;
+            transition: opacity var(--motion-micro-duration) var(--motion-ease);
+            will-change: opacity, transform;
+        }
+
+        .globe-sticker.visible {
+            opacity: 1;
+        }
+
+        .globe-sticker-glyph {
+            display: grid;
+            width: 32px;
+            height: 32px;
+            place-items: center;
+            font-size: 32px;
+            line-height: 1;
+            filter:
+                drop-shadow(2px 0 0 #ffffff)
+                drop-shadow(-2px 0 0 #ffffff)
+                drop-shadow(0 2px 0 #ffffff)
+                drop-shadow(0 -2px 0 #ffffff);
+            transform: scale(0.68);
+            transform-origin: center;
+            transition: transform var(--motion-micro-duration) var(--motion-ease);
+            will-change: transform;
+        }
+
+        .globe-sticker.visible .globe-sticker-glyph {
+            transform: scale(1);
+        }
+
+        #tooltip {
+            --overlay-scale: 1;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            min-width: 98px;
+            max-width: min(240px, calc(100vw - 32px));
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: #242429;
+            box-shadow: none;
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            transform-origin: bottom center;
+            transition: opacity var(--motion-micro-duration) var(--motion-ease);
+            z-index: 3;
+        }
+
+        #tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip-content {
+            display: flex;
+            flex-direction: row;
+            gap: 6px;
+            align-items: center;
+            transform: scale(var(--overlay-scale));
+            transform-origin: bottom center;
+            transition: transform var(--motion-ui-duration) var(--motion-ease);
+        }
+
+        .tooltip-emoji {
+            display: grid;
+            width: 40px;
+            height: 40px;
+            place-items: center;
+            font-size: 40px;
+            font-weight: 700;
+            line-height: 40px;
+            filter:
+                drop-shadow(2px 0 0 #ffffff)
+                drop-shadow(-2px 0 0 #ffffff)
+                drop-shadow(0 2px 0 #ffffff)
+                drop-shadow(0 -2px 0 #ffffff);
+            transform: rotate(4deg);
+        }
+
+        .tooltip-copy {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-top: 0;
+            text-align: center;
+            transform: rotate(-6deg);
+            transform-origin: center;
+        }
+
+        .tooltip-title {
+            font-size: 19px;
+            font-weight: 700;
+            line-height: 23px;
+            white-space: nowrap;
+            -webkit-text-stroke: 4px #ffffff;
+            paint-order: stroke fill;
+        }
+
+        .tooltip-subtitle {
+            max-height: 17px;
+            margin-top: 0;
+            overflow: hidden;
+            font-size: 13px;
+            font-weight: 400;
+            line-height: 17px;
+            color: #242429;
+            white-space: nowrap;
+            -webkit-text-stroke: 4px #ffffff;
+            paint-order: stroke fill;
+            opacity: 1;
+            transform: scale(1);
+            transform-origin: center top;
+            transition:
+                max-height var(--motion-ui-duration) var(--motion-ease),
+                opacity var(--motion-micro-duration) var(--motion-ease),
+                transform var(--motion-ui-duration) var(--motion-ease);
+        }
+
+        #tooltip.subtitle-hidden .tooltip-subtitle {
+            max-height: 0;
+            opacity: 0;
+            transform: scale(0);
+        }
+
+        #tooltip.visible .tooltip-emoji {
+            animation: tooltip-emoji-pop var(--motion-micro-duration) var(--motion-ease);
+        }
+
+        #tooltip.visible .tooltip-copy {
+            animation: tooltip-copy-pop var(--motion-micro-duration) var(--motion-ease);
+        }
+
+        @keyframes tooltip-emoji-pop {
+            0% { opacity: 0; transform: rotate(4deg) scale(0.68); }
+            72% { opacity: 1; transform: rotate(4deg) scale(1.08); }
+            100% { opacity: 1; transform: rotate(4deg) scale(1); }
+        }
+
+        @keyframes tooltip-copy-pop {
+            0% { opacity: 0; transform: rotate(-6deg) scale(0.82); }
+            72% { opacity: 1; transform: rotate(-6deg) scale(1.04); }
+            100% { opacity: 1; transform: rotate(-6deg) scale(1); }
+        }
+
+        .loading {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: rgba(24, 27, 31, 0.48);
+            font-size: 13px;
+            letter-spacing: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="globeStage">
+        <div id="globeViz"></div>
+        <div id="stickers" aria-hidden="true"></div>
+        <div id="tooltip" aria-hidden="true">
+            <div class="tooltip-content">
+                <div id="tooltipEmoji" class="tooltip-emoji"></div>
+                <div class="tooltip-copy">
+                    <div id="tooltipTitle" class="tooltip-title"></div>
+                    <div id="tooltipSubtitle" class="tooltip-subtitle"></div>
+                </div>
+            </div>
+        </div>
+        <div id="loading" class="loading">Loading globe</div>
+    </div>
+
+    <script src="globe.gl.min.js"></script>
+    <script src="countries.js"></script>
+    <script>
+        const container = document.getElementById('globeViz');
+        const globeStage = document.getElementById('globeStage');
+        const stickerRoot = document.getElementById('stickers');
+        const tooltip = document.getElementById('tooltip');
+        const tooltipEmoji = document.getElementById('tooltipEmoji');
+        const tooltipTitle = document.getElementById('tooltipTitle');
+        const tooltipSubtitle = document.getElementById('tooltipSubtitle');
+        const loading = document.getElementById('loading');
+
+        const state = {
+            countries: [],
+            countriesByIso: new Map(),
+            selected: null,
+            features: [],
+            world: null,
+            isReady: false,
+            pendingSelection: null,
+            visibleSelection: null,
+            tooltipSelection: null,
+            tooltipEnabled: true,
+            tooltipSubtitleVisible: true,
+            selectionToken: 0,
+            stickerElements: [],
+            overlayLoopStarted: false,
+            overlayLastFrame: 0,
+            overlayMotionUntil: 0,
+            controlsInteracting: false,
+            idleStickersHidden: false,
+            showIdleStickers: true,
+            isPaused: false,
+            stageOffsetY: 0
+        };
+
+        const idleColor = '#d5ede2';
+
+        function srgbToLinear(value) {
+            return value <= 0.04045
+                ? value / 12.92
+                : Math.pow((value + 0.055) / 1.055, 2.4);
+        }
+
+        function linearColor(red, green, blue) {
+            return {
+                red: srgbToLinear(red / 255),
+                green: srgbToLinear(green / 255),
+                blue: srgbToLinear(blue / 255)
+            };
+        }
+
+        const activeColor = linearColor(3, 143, 93);
+        const inactiveColor = linearColor(213, 237, 226);
+        const cameraDuration = 820;
+        const uiTransitionDuration = 580;
+        const microTransitionDuration = 200;
+        const focusedAltitudeScale = 0.88;
+        const focusedLatitudeBias = 17;
+        const tooltipAltitude = 0.14;
+        const tooltipLift = 40;
+        const overlayFrameInterval = 1000 / 30;
+        const maxVisibleStickers = 14;
+        const stickerCollisionDistance = 38;
+
+        function showLoadingStatus(message) {
+            loading.textContent = message;
+            loading.style.display = 'grid';
+        }
+
+        function showError(error) {
+            const message = error && (error.message || error.reason || error.toString())
+                ? (error.message || error.reason || error.toString())
+                : 'Unknown globe error';
+            showLoadingStatus(`Globe error: ${message}`);
+            console.error(error);
+        }
+
+        window.addEventListener('error', event => showError(event.error || event.message));
+        window.addEventListener('unhandledrejection', event => showError(event.reason));
+
+        function globeSize() {
+            const rect = container.getBoundingClientRect();
+            const width = Math.max(
+                rect.width,
+                document.documentElement.clientWidth,
+                window.innerWidth,
+                1
+            );
+            const stageHeight = Math.max(rect.height, window.innerHeight, 1);
+            const targetHeight = Math.min(stageHeight, Math.max(width * 1.18, 360));
+            return { width, height: targetHeight };
+        }
+
+        function featureIso(feature) {
+            const props = feature && feature.properties ? feature.properties : {};
+            return props.ISO_A3 || props.ADM0_A3 || props.SOV_A3 || props.GU_A3 || '';
+        }
+
+        function featureContinent(feature) {
+            const props = feature && feature.properties ? feature.properties : {};
+            return props.CONTINENT || '';
+        }
+
+        function polygonColor() {
+            return idleColor;
+        }
+
+        function polygonAltitude() {
+            return 0.008;
+        }
+
+        function polygonMargin() {
+            return 0.48;
+        }
+
+        function emitSelection(iso) {
+            if (!iso || !window.webkit || !window.webkit.messageHandlers.esimGlobe) {
+                return;
+            }
+            window.webkit.messageHandlers.esimGlobe.postMessage({
+                type: 'selectCountry',
+                id: iso
+            });
+        }
+
+        function refreshPolygons() {
+            if (!state.world) {
+                return;
+            }
+
+            state.world
+                .hexPolygonColor(polygonColor)
+                .hexPolygonAltitude(polygonAltitude)
+                .hexPolygonMargin(polygonMargin);
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('visible');
+            state.tooltipSelection = null;
+        }
+
+        function applyStageOffset(offsetY) {
+            const nextOffset = Number.isFinite(Number(offsetY)) ? Number(offsetY) : 0;
+            if (state.stageOffsetY === nextOffset) {
+                return;
+            }
+            state.stageOffsetY = nextOffset;
+            globeStage.style.setProperty('--stage-offset-y', `${nextOffset}px`);
+            if (state.world) {
+                startOverlayLoop(uiTransitionDuration);
+            }
+        }
+
+        function locationVector(lat, lng) {
+            return centerVector({ lat, lng });
+        }
+
+        function locationDot(firstLat, firstLng, secondLat, secondLng) {
+            const first = locationVector(firstLat, firstLng);
+            const second = locationVector(secondLat, secondLng);
+            return first.x * second.x + first.y * second.y + first.z * second.z;
+        }
+
+        function isLocationVisible(lat, lng) {
+            if (!state.world) {
+                return false;
+            }
+
+            const pointOfView = state.world.pointOfView();
+            return locationDot(lat, lng, pointOfView.lat, pointOfView.lng) > -0.02;
+        }
+
+        function showTooltip(selection) {
+            if (!state.world || !selection || !state.tooltipEnabled) {
+                hideTooltip();
+                return;
+            }
+
+            tooltipEmoji.textContent = selection.sticker || '🌍';
+            tooltipTitle.textContent = selection.title;
+            tooltipSubtitle.textContent = selection.priceLabel;
+            tooltip.classList.toggle(
+                'subtitle-hidden',
+                !state.tooltipSubtitleVisible
+            );
+            state.tooltipSelection = selection;
+            updateTooltipPosition();
+        }
+
+        function updateTooltipPosition() {
+            const selection = state.tooltipSelection;
+            if (!state.world || !selection) {
+                return;
+            }
+
+            const coords = state.world.getScreenCoords(
+                selection.lat,
+                selection.lng,
+                tooltipAltitude
+            );
+            const minimumTooltipY = 120;
+            if (
+                !coords
+                || !isLocationVisible(selection.lat, selection.lng)
+            ) {
+                tooltip.classList.remove('visible');
+                return;
+            }
+
+            const safeX = Math.max(86, Math.min(window.innerWidth - 86, coords.x));
+            const safeY = Math.max(
+                minimumTooltipY,
+                Math.min(window.innerHeight - 28, coords.y)
+            );
+            tooltip.style.left = `${safeX}px`;
+            tooltip.style.top = `${safeY - tooltipLift}px`;
+            tooltip.classList.add('visible');
+        }
+
+        function installStickers() {
+            stickerRoot.replaceChildren();
+            state.stickerElements = state.countries.map((country, index) => {
+                const element = document.createElement('div');
+                element.className = 'globe-sticker';
+                const glyph = document.createElement('span');
+                glyph.className = 'globe-sticker-glyph';
+                glyph.textContent = country.sticker;
+                element.appendChild(glyph);
+                element.setAttribute('role', 'img');
+                element.setAttribute('aria-label', country.title);
+                element.dataset.index = `${index}`;
+                stickerRoot.appendChild(element);
+                return {
+                    ...country,
+                    rotation: (index * 7) % 17 - 8,
+                    vector: centerVector(country),
+                    isVisible: false,
+                    lastX: Number.NaN,
+                    lastY: Number.NaN,
+                    glyph,
+                    element
+                };
+            });
+            state.idleStickersHidden = false;
+        }
+
+        function setStickerVisibility(sticker, isVisible) {
+            if (sticker.isVisible === isVisible) {
+                return;
+            }
+            sticker.isVisible = isVisible;
+            sticker.element.classList.toggle('visible', isVisible);
+        }
+
+        function hideIdleStickers() {
+            if (state.idleStickersHidden) {
+                return;
+            }
+            state.stickerElements.forEach(sticker => setStickerVisibility(sticker, false));
+            state.idleStickersHidden = true;
+        }
+
+        function updateStickers() {
+            if (!state.world) {
+                return;
+            }
+            if (!state.showIdleStickers) {
+                hideIdleStickers();
+                return;
+            }
+
+            state.idleStickersHidden = false;
+            const pointOfView = state.world.pointOfView();
+            const cameraVector = centerVector(pointOfView);
+            const candidates = state.stickerElements
+                .map(sticker => ({
+                    sticker,
+                    facing: sticker.vector.x * cameraVector.x
+                        + sticker.vector.y * cameraVector.y
+                        + sticker.vector.z * cameraVector.z
+                }))
+                .filter(candidate => candidate.facing > 0.08)
+                .sort((first, second) => second.facing - first.facing);
+
+            const visible = new Set();
+            const occupied = [];
+
+            for (const candidate of candidates) {
+                if (visible.size >= maxVisibleStickers) {
+                    break;
+                }
+
+                const sticker = candidate.sticker;
+                const coords = state.world.getScreenCoords(sticker.lat, sticker.lng, 0.11);
+                const isInside = coords
+                    && coords.x > 18
+                    && coords.x < window.innerWidth - 18
+                    && coords.y > 24
+                    && coords.y < window.innerHeight - 24;
+                if (!isInside) {
+                    continue;
+                }
+
+                const overlaps = occupied.some(point => {
+                    const dx = point.x - coords.x;
+                    const dy = point.y - coords.y;
+                    return dx * dx + dy * dy < stickerCollisionDistance * stickerCollisionDistance;
+                });
+                if (overlaps) {
+                    continue;
+                }
+
+                occupied.push(coords);
+                visible.add(sticker);
+
+                if (
+                    !Number.isFinite(sticker.lastX)
+                    || Math.abs(sticker.lastX - coords.x) > 0.35
+                    || Math.abs(sticker.lastY - coords.y) > 0.35
+                ) {
+                    sticker.lastX = coords.x;
+                    sticker.lastY = coords.y;
+                    sticker.element.style.transform = `translate3d(${coords.x - 16}px, ${coords.y - 16}px, 0) rotate(${sticker.rotation}deg)`;
+                }
+            }
+
+            state.stickerElements.forEach(sticker => {
+                setStickerVisibility(sticker, visible.has(sticker));
+            });
+        }
+
+        function updateAnchoredOverlays(now) {
+            if (!state.overlayLoopStarted) {
+                return;
+            }
+            if (state.isPaused) {
+                state.overlayLoopStarted = false;
+                state.overlayLastFrame = 0;
+                return;
+            }
+
+            if (now - state.overlayLastFrame >= overlayFrameInterval) {
+                state.overlayLastFrame = now;
+                updateTooltipPosition();
+                updateStickers();
+            }
+
+            const controls = state.world ? state.world.controls() : null;
+            const shouldContinue = Boolean(
+                (controls && controls.autoRotate)
+                || state.controlsInteracting
+                || now < state.overlayMotionUntil
+            );
+            if (shouldContinue) {
+                requestAnimationFrame(updateAnchoredOverlays);
+                return;
+            }
+
+            state.overlayLoopStarted = false;
+            state.overlayLastFrame = 0;
+        }
+
+        function startOverlayLoop(duration = 0) {
+            if (state.isPaused) {
+                return;
+            }
+            state.overlayMotionUntil = Math.max(
+                state.overlayMotionUntil,
+                performance.now() + Math.max(0, duration)
+            );
+            if (state.overlayLoopStarted) {
+                return;
+            }
+            state.overlayLoopStarted = true;
+            requestAnimationFrame(updateAnchoredOverlays);
+        }
+
+        function selectionMatchesFeature(selection, feature) {
+            if (!selection) {
+                return false;
+            }
+
+            const countryIDs = Array.isArray(selection.countryIDs)
+                ? selection.countryIDs
+                : [];
+            if (countryIDs.includes(featureIso(feature))) {
+                return true;
+            }
+
+            const continents = Array.isArray(selection.continents)
+                ? selection.continents
+                : [];
+            return continents.includes(featureContinent(feature));
+        }
+
+        function selectionMeshes(selection) {
+            return state.features
+                .filter(feature => selectionMatchesFeature(selection, feature))
+                .map(feature => feature.__threeObjHexPolygon)
+                .filter(Boolean);
+        }
+
+        function smoothstep(edge0, edge1, value) {
+            const amount = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+            return amount * amount * (3 - 2 * amount);
+        }
+
+        function easeInOut(value) {
+            return value < 0.5
+                ? 2 * value * value
+                : 1 - Math.pow(-2 * value + 2, 2) / 2;
+        }
+
+        function focusedPointOfView(selection) {
+            return {
+                lat: Math.max(-80, Math.min(80, selection.lat - focusedLatitudeBias)),
+                lng: selection.lng,
+                altitude: Math.max(
+                    1.3,
+                    (selection.altitude || 1.55) * focusedAltitudeScale
+                )
+            };
+        }
+
+        function centerVector(selection) {
+            const phi = (90 - selection.lat) * Math.PI / 180;
+            const theta = (90 - selection.lng) * Math.PI / 180;
+            const phiSin = Math.sin(phi);
+            return {
+                x: phiSin * Math.cos(theta),
+                y: Math.cos(phi),
+                z: phiSin * Math.sin(theta)
+            };
+        }
+
+        function prepareWave(mesh, selection) {
+            if (!mesh || !mesh.geometry || !mesh.material) {
+                return null;
+            }
+
+            const position = mesh.geometry.getAttribute('position');
+            if (!position) {
+                return null;
+            }
+
+            let wave = mesh.userData.esimWave;
+            if (!wave || wave.geometry !== mesh.geometry || wave.selectionID !== selection.id) {
+                const center = centerVector(selection);
+                const distances = new Float32Array(position.count);
+                let maxDistance = 0;
+
+                for (let index = 0; index < position.count; index += 1) {
+                    const x = position.getX(index);
+                    const y = position.getY(index);
+                    const z = position.getZ(index);
+                    const length = Math.sqrt(x * x + y * y + z * z) || 1;
+                    const dot = Math.max(-1, Math.min(
+                        1,
+                        (x * center.x + y * center.y + z * center.z) / length
+                    ));
+                    const distance = Math.acos(dot);
+                    distances[index] = distance;
+                    maxDistance = Math.max(maxDistance, distance);
+                }
+
+                const colors = position.clone();
+                for (let index = 0; index < colors.count; index += 1) {
+                    colors.setXYZ(
+                        index,
+                        inactiveColor.red,
+                        inactiveColor.green,
+                        inactiveColor.blue
+                    );
+                }
+                colors.needsUpdate = true;
+                mesh.geometry.setAttribute('color', colors);
+                wave = {
+                    geometry: mesh.geometry,
+                    selectionID: selection.id,
+                    distances,
+                    localMaxDistance: Math.max(maxDistance, 0.001),
+                    maxDistance: Math.max(maxDistance, 0.001),
+                    colors,
+                    progress: 0
+                };
+                mesh.userData.esimWave = wave;
+            }
+
+            mesh.material.color.set('#ffffff');
+            mesh.material.opacity = 1;
+            mesh.material.transparent = false;
+            mesh.material.vertexColors = true;
+            mesh.material.needsUpdate = true;
+            return wave;
+        }
+
+        function paintWave(mesh, wave, progress) {
+            const front = -0.20 + progress * 1.30;
+            const feather = 0.16;
+
+            for (let index = 0; index < wave.distances.length; index += 1) {
+                const distance = wave.distances[index] / wave.maxDistance;
+                const amount = 1 - smoothstep(front, front + feather, distance);
+                const red = inactiveColor.red
+                    + (activeColor.red - inactiveColor.red) * amount;
+                const green = inactiveColor.green
+                    + (activeColor.green - inactiveColor.green) * amount;
+                const blue = inactiveColor.blue
+                    + (activeColor.blue - inactiveColor.blue) * amount;
+                wave.colors.setXYZ(index, red, green, blue);
+            }
+
+            wave.colors.needsUpdate = true;
+            wave.progress = progress;
+            mesh.userData.esimWave = wave;
+        }
+
+        function restoreIdleAppearance(mesh) {
+            if (!mesh || !mesh.material) {
+                return;
+            }
+
+            if (mesh.geometry && mesh.geometry.getAttribute('color')) {
+                mesh.geometry.deleteAttribute('color');
+            }
+            mesh.userData.esimWave = null;
+            mesh.material.vertexColors = false;
+            mesh.material.color.set(idleColor);
+            mesh.material.opacity = 1;
+            mesh.material.transparent = false;
+            mesh.material.needsUpdate = true;
+        }
+
+        function animateSelection(selection, targetProgress, duration, token) {
+            const entries = selectionMeshes(selection)
+                .map(mesh => ({ mesh, wave: prepareWave(mesh, selection) }))
+                .filter(entry => entry.wave);
+            if (!entries.length) {
+                return Promise.resolve(token === state.selectionToken);
+            }
+
+            const maxDistance = Math.max(
+                ...entries.map(entry => entry.wave.localMaxDistance),
+                0.001
+            );
+            entries.forEach(entry => {
+                entry.wave.maxDistance = maxDistance;
+            });
+
+            const startProgress = entries[0].wave.progress;
+            const startedAt = performance.now();
+            let lastPaintAt = Number.NEGATIVE_INFINITY;
+            entries.forEach(entry => paintWave(entry.mesh, entry.wave, startProgress));
+
+            return new Promise(resolve => {
+                function frame(now) {
+                    if (token !== state.selectionToken) {
+                        resolve(false);
+                        return;
+                    }
+
+                    const elapsed = Math.min(1, (now - startedAt) / duration);
+                    const progress = startProgress
+                        + (targetProgress - startProgress) * easeInOut(elapsed);
+                    if (elapsed === 1 || now - lastPaintAt >= overlayFrameInterval) {
+                        lastPaintAt = now;
+                        entries.forEach(entry => paintWave(entry.mesh, entry.wave, progress));
+                    }
+
+                    if (elapsed < 1) {
+                        requestAnimationFrame(frame);
+                        return;
+                    }
+
+                    if (targetProgress === 0) {
+                        entries.forEach(entry => restoreIdleAppearance(entry.mesh));
+                    }
+                    resolve(true);
+                }
+
+                requestAnimationFrame(frame);
+            });
+        }
+
+        function wait(duration, token) {
+            return new Promise(resolve => {
+                window.setTimeout(
+                    () => resolve(token === state.selectionToken),
+                    duration
+                );
+            });
+        }
+
+        async function runSelection(selection) {
+            const token = ++state.selectionToken;
+            const previousSelection = state.visibleSelection;
+
+            state.pendingSelection = null;
+            state.selected = selection || null;
+            state.showIdleStickers = false;
+            hideIdleStickers();
+            hideTooltip();
+            startOverlayLoop(cameraDuration);
+
+            const controls = state.world.controls();
+            controls.autoRotate = false;
+            controls.enableZoom = false;
+            controls.enablePan = false;
+            controls.enableRotate = false;
+
+            const dampingWasEnabled = controls.enableDamping;
+            controls.enableDamping = false;
+            controls.update();
+            controls.enableDamping = dampingWasEnabled;
+
+            if (previousSelection) {
+                const didFade = await animateSelection(
+                    previousSelection,
+                    0,
+                    uiTransitionDuration,
+                    token
+                );
+                if (!didFade) {
+                    return;
+                }
+                state.visibleSelection = null;
+            }
+
+            if (token !== state.selectionToken) {
+                return;
+            }
+
+            if (!selection) {
+                state.world.pointOfView({ lat: 18, lng: 72, altitude: 2.25 }, cameraDuration);
+                if (await wait(cameraDuration, token)) {
+                    controls.enableRotate = true;
+                    controls.autoRotate = true;
+                    state.showIdleStickers = true;
+                    startOverlayLoop();
+                }
+                return;
+            }
+
+            state.world.pointOfView(
+                focusedPointOfView(selection),
+                cameraDuration
+            );
+            if (!await wait(cameraDuration, token)) {
+                return;
+            }
+            controls.enableRotate = true;
+
+            state.visibleSelection = selection;
+            const didReveal = await animateSelection(
+                selection,
+                1,
+                uiTransitionDuration,
+                token
+            );
+            if (!didReveal || token !== state.selectionToken) {
+                return;
+            }
+
+            showTooltip(selection);
+        }
+
+        function selectCountry(selection) {
+            if (!state.world) {
+                state.pendingSelection = selection || null;
+                return;
+            }
+
+            if (
+                selection
+                && state.visibleSelection
+                && state.visibleSelection.id === selection.id
+                && state.tooltipSelection
+            ) {
+                return;
+            }
+
+            runSelection(selection || null);
+        }
+
+        function resizeGlobe() {
+            if (!state.world) {
+                return;
+            }
+
+            const { width, height } = globeSize();
+            state.world.width(width).height(height);
+            updateTooltipPosition();
+            updateStickers();
+        }
+
+        function installPublicAPI() {
+            window.esimGlobe = {
+                setCountries(countries) {
+                    state.countries = Array.isArray(countries) ? countries : [];
+                    state.countriesByIso = new Map(state.countries.map(country => [country.id, country]));
+                    installStickers();
+                    refreshPolygons();
+                },
+                selectCountry(country) {
+                    selectCountry(country);
+                },
+                clearSelection() {
+                    selectCountry(null);
+                },
+                setTooltipVisible(isVisible) {
+                    state.tooltipEnabled = Boolean(isVisible);
+                    if (!state.tooltipEnabled) {
+                        hideTooltip();
+                    } else if (state.visibleSelection) {
+                        showTooltip(state.visibleSelection);
+                    }
+                },
+                setTooltipSubtitleVisible(isVisible) {
+                    state.tooltipSubtitleVisible = Boolean(isVisible);
+                    tooltip.classList.toggle(
+                        'subtitle-hidden',
+                        !state.tooltipSubtitleVisible
+                    );
+                    updateTooltipPosition();
+                },
+                setTooltipScale(scale) {
+                    const safeScale = Number.isFinite(Number(scale))
+                        ? Math.max(1, Number(scale))
+                        : 1;
+                    tooltip.style.setProperty('--overlay-scale', `${safeScale}`);
+                },
+                setStageOffset(offsetY) {
+                    applyStageOffset(offsetY);
+                },
+                setPaused(isPaused) {
+                    const shouldPause = Boolean(isPaused);
+                    if (state.isPaused === shouldPause) {
+                        return;
+                    }
+
+                    state.isPaused = shouldPause;
+                    if (!state.world) {
+                        return;
+                    }
+
+                    if (shouldPause) {
+                        state.selectionToken += 1;
+                        state.overlayLoopStarted = false;
+                        state.overlayLastFrame = 0;
+                        state.world.pauseAnimation();
+                        return;
+                    }
+
+                    state.world.resumeAnimation();
+                    if (
+                        state.selected
+                        && (
+                            !state.visibleSelection
+                            || state.visibleSelection.id !== state.selected.id
+                            || !state.tooltipSelection
+                        )
+                    ) {
+                        runSelection(state.selected);
+                        return;
+                    }
+                    updateTooltipPosition();
+                    updateStickers();
+                    startOverlayLoop(uiTransitionDuration);
+                }
+            };
+        }
+
+        function createWorld(features) {
+            showLoadingStatus(`Loading ${features.length} countries`);
+
+            const { width, height } = globeSize();
+            const world = new Globe(container, {
+                animateIn: false,
+                waitForGlobeReady: false,
+                rendererConfig: {
+                    antialias: true,
+                    alpha: true,
+                    powerPreference: 'high-performance'
+                }
+            });
+
+            state.world = world;
+            state.features = features;
+
+            world
+                .width(width)
+                .height(height)
+                .backgroundColor('#eee5ff')
+                .showAtmosphere(false)
+                .hexPolygonsData(features)
+                .hexPolygonResolution(3)
+                .hexPolygonMargin(polygonMargin)
+                .hexPolygonUseDots(true)
+                .hexPolygonsTransitionDuration(0)
+                .hexPolygonLabel(() => null)
+                .onHexPolygonClick(feature => {
+                    const iso = featureIso(feature);
+                    if (state.countriesByIso.has(iso)) {
+                        emitSelection(iso);
+                    }
+                })
+                .onGlobeReady(() => {
+                    loading.style.display = 'none';
+                })
+                .pointOfView({ lat: 18, lng: 72, altitude: 2.25 }, 0);
+
+            const renderer = world.renderer();
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+
+            const globeMaterial = world.globeMaterial();
+            globeMaterial.color.set('#ffffff');
+            globeMaterial.emissive.set('#000000');
+            globeMaterial.emissiveIntensity = 0;
+            globeMaterial.shininess = 6;
+
+            const controls = world.controls();
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.45;
+            controls.enableZoom = false;
+            controls.enablePan = false;
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.addEventListener('start', () => {
+                state.controlsInteracting = true;
+                startOverlayLoop();
+            });
+            controls.addEventListener('change', () => {
+                startOverlayLoop(microTransitionDuration);
+            });
+            controls.addEventListener('end', () => {
+                state.controlsInteracting = false;
+                startOverlayLoop(uiTransitionDuration);
+            });
+
+            refreshPolygons();
+            if (state.isPaused) {
+                world.pauseAnimation();
+            } else {
+                startOverlayLoop();
+            }
+            state.isReady = true;
+            window.setTimeout(() => {
+                if (state.isReady) {
+                    loading.style.display = 'none';
+                }
+            }, 360);
+
+            if (state.pendingSelection) {
+                selectCountry(state.pendingSelection);
+            }
+
+            window.setTimeout(resizeGlobe, 80);
+            window.setTimeout(resizeGlobe, 320);
+        }
+
+        installPublicAPI();
+        window.addEventListener('resize', resizeGlobe);
+
+        try {
+            createWorld((window.ESIM_COUNTRIES_GEOJSON || {}).features || []);
+        } catch (error) {
+            loading.textContent = 'Globe did not load';
+            console.error(error);
+        }
+    </script>
+</body>
+</html>

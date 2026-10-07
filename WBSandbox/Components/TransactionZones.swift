@@ -9,6 +9,8 @@ struct AmountZone: View {
     let input: AmountInput
     /// Группа бейджей под суммой (макет: `badge group`, gap 4).
     let badges: [BadgeSpec]
+    /// WB-баллы за выбранный способ оплаты. nil — в этом сценарии бейджа нет.
+    var bonusPoints: Int?
     let message: MessageBubble?
     /// Каретка есть только там, где сумму набирают: под ней стоит клавиатура.
     /// Без клавиатуры мигающая палочка обещает ввод, которого нет.
@@ -27,8 +29,12 @@ struct AmountZone: View {
         VStack(spacing: WBSpace.x2) {
             VStack(spacing: WBSpace.x2) {
                 amountLine
-                if !badges.isEmpty {
+                if bonusPoints != nil || !badges.isEmpty {
                     HStack(spacing: WBSpace.x1) {
+                        if let bonusPoints {
+                            WBBonusBadgeView(points: bonusPoints)
+                        }
+
                         ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
                             WBBadgeView(badge: badge)
                         }
@@ -340,7 +346,21 @@ struct DetailRowView: View {
     let row: DetailRow
     var onTap: (() -> Void)?
 
+    @ViewBuilder
     var body: some View {
+        if let onTap {
+            rowContent
+                .onTapGesture {
+                    Haptics.tap()
+                    onTap()
+                }
+                .accessibilityAddTraits(.isButton)
+        } else {
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         // Макет `🔷 listItemLite / medium - small`: Body gap 8, Content gap 8 и py 8.
         // Высота не фиксирована — её задаёт содержимое (получается те же ~56 pt).
         HStack(spacing: WBSpace.x2) {
@@ -378,11 +398,6 @@ struct DetailRowView: View {
             .padding(.vertical, WBSpace.x2)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard let onTap else { return }
-            Haptics.tap()
-            onTap()
-        }
     }
 
     private func text(_ spec: RowText) -> some View {

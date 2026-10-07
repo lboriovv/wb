@@ -21,15 +21,20 @@ struct EnvelopeGiftAnim {
     var backdrop: Double { 0.48 * Self.k }
     var chromeDelay: Double { 1.42 * Self.k }
     var chrome: Double { 0.36 * Self.k }
+    var messageDelay: Double { chromeDelay + 0.28 * Self.k }
+    var message: Double { 0.50 * Self.k }
     var handoverDelay: Double { 1.36 * Self.k }
     var handover: Double { 0.35 * Self.k }
 
     var total: Double {
-        max(
+        let longest = max(
             confettiDelay + confetti,
-            max(cardBounceDelay + cardBounce, chromeDelay + chrome)
+            max(
+                cardBounceDelay + cardBounce,
+                max(chromeDelay + chrome, messageDelay + message)
+            )
         )
-            + 0.18 * Self.k
+        return longest + 0.18 * Self.k
     }
 }
 
@@ -67,6 +72,7 @@ private struct EnvelopeRevealConfig {
     /// 0.625 — середина первой четверти нижней половины экрана.
     var envelopeVerticalPosition: CGFloat = 0.625
     var cardStartScale: CGFloat = 0.34
+    var cardFinalScale: CGFloat = 264.0 / 310.0
     var cardStartOffsetY: CGFloat = 54
     var cardLandingBounceY: CGFloat = 14
     var dropRotation: Double = 24
@@ -129,13 +135,15 @@ struct PostcardEnvelopeGiftScreen: View {
     @State private var tearProgress: CGFloat = 0
     @State private var tearHapticStep = 0
     @State private var openedAt: Date?
-    @State private var isRevealing = false
-    @State private var cardFlipBaseDegrees: Double = 0
-    @State private var cardFlipDragDegrees: Double = 0
+    @State private var thanksStartedAt: TimeInterval?
+    @State private var thanksCloseToken = UUID()
+    @State private var tearHapticToken = UUID()
+    @State private var revealHapticToken = UUID()
 
     private let anim = EnvelopeGiftAnim()
     private let config = EnvelopeRevealConfig()
-    private let cardBackMessage = "С днем\nрождения,\nбратан!"
+    private let messageText = "С Днём рождения!"
+    private let messagePosition: WBMessageBubble.Position = .left
 
     private enum Metrics {
         static let navRow: CGFloat = 48
@@ -143,6 +151,12 @@ struct PostcardEnvelopeGiftScreen: View {
         static let buttonHeight: CGFloat = 52
         static let panelTopPadding: CGFloat = 8
         static let panelRadius: CGFloat = 24
+        static let contentTopSpacing: CGFloat = 4
+        static let cardTopOffset: CGFloat = 80
+        static let messageTopOffset: CGFloat = 464
+        static let messageHeight: CGFloat = 40
+        static let thanksBurstDuration: TimeInterval = 1.32
+        static let thanksCloseDelay: TimeInterval = 1.54
     }
 
     private var card: Postcard {
@@ -170,7 +184,7 @@ struct PostcardEnvelopeGiftScreen: View {
             let panelHeight = Metrics.panelTopPadding + Metrics.buttonHeight
                 + proxy.safeAreaInsets.bottom
             let panelTop = height - panelHeight
-            let cardCenterY = (topInset + Metrics.navRow + panelTop) / 2
+            let cardCenterY = finalCardCenterY(topInset: topInset)
 
             let stage = Stage(
                 width: width,
@@ -184,25 +198,29 @@ struct PostcardEnvelopeGiftScreen: View {
             Group {
                 if let demoElapsed = SandboxSettings.giftElapsed {
                     frame(at: demoElapsed, stage: stage)
-                } else if isRevealing, let openedAt {
+                } else if let openedAt {
                     TimelineView(.animation) { context in
                         frame(at: context.date.timeIntervalSince(openedAt), stage: stage)
                     }
                 } else {
-                    frame(at: isOpen ? anim.total : 0, stage: stage)
+                    frame(at: 0, stage: stage)
                 }
             }
             .frame(width: width, height: height, alignment: .topLeading)
             .offset(y: -topInset)
         }
         .onAppear {
+            resetEnvelopeState()
             motion.start()
             if SandboxSettings.giftOpened || SandboxSettings.giftElapsed != nil {
                 tearProgress = 1
-                openedAt = .distantPast
+                openedAt = Date(timeIntervalSinceNow: -anim.total)
             }
         }
-        .onDisappear { motion.stop() }
+        .onDisappear {
+            motion.stop()
+            resetEnvelopeState()
+        }
     }
 
     private struct Stage {
@@ -225,8 +243,10 @@ struct PostcardEnvelopeGiftScreen: View {
         let dropP = isOpen ? prog(elapsed, anim.envelopeDropDelay, anim.envelopeDrop) : 0
         let backdropP = isOpen ? prog(elapsed, anim.backdropDelay, anim.backdrop) : 0
         let chromeP = isOpen ? prog(elapsed, anim.chromeDelay, anim.chrome) : 0
+        let messageP = isOpen ? prog(elapsed, anim.messageDelay, anim.message) : 0
         let handover = isOpen ? Double(prog(elapsed, anim.handoverDelay, anim.handover)) : 0
         let landingBounceP = isOpen ? prog(elapsed, anim.cardBounceDelay, anim.cardBounce) : 0
+        let thanksElapsed = thanksStartedAt.map { max(0, elapsed - $0) }
 
         let cutLift = clamp01(config.cutLiftDegrees / 180)
         let flapOpen = isOpen
@@ -252,7 +272,7 @@ struct PostcardEnvelopeGiftScreen: View {
         let cardY = lerp(startCardY, stage.cardCenterY, cardFlight)
             + cardArcY
             + landingBounceY
-        let cardScale = lerp(config.cardStartScale, 1, cardScaleFlight)
+        let cardScale = lerp(config.cardStartScale, config.cardFinalScale, cardScaleFlight)
         let cardRotation = 90 * Double(1 - cardTurnFlight)
 
         let dropDistance = stage.height - envelopeCenter.y + envelopeSize.height * 0.7
@@ -340,7 +360,8 @@ struct PostcardEnvelopeGiftScreen: View {
                     config: config,
                     sealProgress: 1,
                     isInteractive: false,
-                    showsSeal: false
+                    showsSeal: false,
+                    showsCutHint: true
                 )
                 .frame(width: envelopeSize.width, height: envelopeSize.height)
                 .scaleEffect(envelopeScale)
@@ -378,23 +399,40 @@ struct PostcardEnvelopeGiftScreen: View {
                 )
                 .position(x: envelopeCenter.x, y: envelopeCenter.y)
                 .zIndex(4)
-
-                EnvelopeCutHintView(progress: tearProgress)
-                    .position(
-                        x: stage.width / 2,
-                        y: envelopeCenter.y + envelopeSize.height / 2 + 24 + WBLineHeight.description / 2
-                    )
-                    .zIndex(4.4)
             }
 
             if isOpen {
+                WBMessageBubble(
+                    message: messageText,
+                    position: messagePosition,
+                    tailImage: Image("postcardMessageBubbleTail"),
+                    style: WBMessageBubble.Style(
+                        font: WBFont.description,
+                        textColor: WBColor.textPrimary,
+                        bubbleBackground: WBColor.bgBase,
+                        bubbleStroke: WBColor.strokeSecondary
+                    )
+                )
+                    .position(
+                        x: stage.width / 2,
+                        y: messageCenterY(topInset: stage.topInset)
+                    )
+                    .envelopeMessageReveal(messageP, position: messagePosition)
+                    .allowsHitTesting(false)
+                    .zIndex(7)
 
                 Group {
                     openedNavigationBar(width: stage.width)
                         .offset(y: stage.topInset)
                         .reveal(chromeP, rise: 10)
 
-                    panel(title: "Сказать спасибо", stage: stage) { onThanks() }
+                    panel(
+                        title: "Сказать спасибо",
+                        stage: stage,
+                        thanksElapsed: thanksElapsed
+                    ) {
+                        startThanks(elapsed: elapsed)
+                    }
                         .reveal(chromeP, rise: 28)
                         .offset(y: stage.panelTop)
                 }
@@ -459,14 +497,9 @@ struct PostcardEnvelopeGiftScreen: View {
 
     private func giftCard(handover: Double) -> some View {
         let tilt = TiltInput.blend(TiltInput(), liveTilt, handover)
-        let flipDegrees = cardFlipBaseDegrees + cardFlipDragDegrees
+        let cornerRadius: CGFloat = 24
 
-        return EnvelopeFlippablePostcardView(
-            card: card,
-            tilt: tilt,
-            flipDegrees: flipDegrees,
-            backMessage: cardBackMessage
-        )
+        return GlossyPostcardView(card: card, tilt: tilt, cornerRadius: cornerRadius)
             .modifier(
                 CardTiltEffect(
                     pitch: tilt.rotationPitch * handover,
@@ -474,52 +507,10 @@ struct PostcardEnvelopeGiftScreen: View {
                 )
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: PostcardMetrics.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             )
-            .onTapGesture {
-                flipGiftCard()
-            }
-            .simultaneousGesture(giftCardFlipGesture)
-            .allowsHitTesting(handover > 0.98)
+            .allowsHitTesting(false)
             .shadow(color: .black.opacity(0.18), radius: 26, y: 15)
-    }
-
-    private var giftCardFlipGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                cardFlipDragDegrees = cardFlipDragRotation(for: value.translation.width)
-            }
-            .onEnded { value in
-                let distance = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                let shouldFlip = abs(predicted) > 44 || abs(distance) > 52
-                let direction: Double = predicted < 0 || (predicted == 0 && distance < 0) ? 1 : -1
-
-                if shouldFlip {
-                    flipGiftCard(direction: direction)
-                } else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-                        cardFlipDragDegrees = 0
-                    }
-                }
-            }
-    }
-
-    private func cardFlipDragRotation(for translation: CGFloat) -> Double {
-        let progress = Ease.move(clamp01(abs(translation) / (PostcardMetrics.cardSize.width * 0.72)))
-        let direction: Double = translation < 0 ? 1 : -1
-        return direction * 150 * Double(progress)
-    }
-
-    private func flipGiftCard(direction: Double = 1) {
-        let currentStep = Int(round(cardFlipBaseDegrees / 180))
-        let step = direction >= 0 ? 1 : -1
-
-        Haptics.tap()
-        withAnimation(.spring(response: 0.56, dampingFraction: 0.78)) {
-            cardFlipDragDegrees = 0
-            cardFlipBaseDegrees = Double(currentStep + step) * 180
-        }
     }
 
     private func landingBounce(_ progress: CGFloat) -> CGFloat {
@@ -598,6 +589,32 @@ struct PostcardEnvelopeGiftScreen: View {
         return CGPoint(x: stage.width / 2, y: min(maxY, max(minY, desiredY)))
     }
 
+    private func messageCenterY(topInset: CGFloat) -> CGFloat {
+        topInset
+            + Metrics.navRow
+            + Metrics.contentTopSpacing
+            + Metrics.messageTopOffset
+            + Metrics.messageHeight / 2
+    }
+
+    private func finalCardCenterY(topInset: CGFloat) -> CGFloat {
+        topInset
+            + Metrics.navRow
+            + Metrics.contentTopSpacing
+            + Metrics.cardTopOffset
+            + PostcardMetrics.cardSize.height * config.cardFinalScale / 2
+    }
+
+    private func resetEnvelopeState() {
+        tearProgress = 0
+        tearHapticStep = 0
+        openedAt = nil
+        thanksStartedAt = nil
+        thanksCloseToken = UUID()
+        tearHapticToken = UUID()
+        revealHapticToken = UUID()
+    }
+
     // MARK: Жест
 
     private func tearGesture(envelopeSize: CGSize) -> some Gesture {
@@ -617,6 +634,7 @@ struct PostcardEnvelopeGiftScreen: View {
             .onEnded { _ in
                 guard !isOpen else { return }
                 tearHapticStep = 0
+                tearHapticToken = UUID()
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
                     tearProgress = 0
                 }
@@ -624,35 +642,110 @@ struct PostcardEnvelopeGiftScreen: View {
     }
 
     private func playTearHapticIfNeeded(progress: CGFloat) {
-        let steps = 12
-        let step = min(steps, max(0, Int((progress * CGFloat(steps)).rounded(.down))))
+        let steps = 16
+        let step = min(steps, max(0, Int((progress * CGFloat(steps)).rounded(.up))))
         guard step > tearHapticStep else { return }
 
+        let firstStep = tearHapticStep + 1
         tearHapticStep = step
-        Haptics.key()
+        let token = tearHapticToken
+
+        for beat in firstStep...step {
+            let delay = Double(beat - firstStep) * 0.016
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard tearHapticToken == token else { return }
+                playTearBeat(step: beat, total: steps)
+            }
+        }
+    }
+
+    private func playTearBeat(step: Int, total: Int) {
+        let p = clamp01(CGFloat(step) / CGFloat(total))
+        let intensity = 0.26 + 0.74 * Ease.accelerate(p)
+
+        switch p {
+        case 0..<0.34:
+            Haptics.impact(.soft, intensity: intensity)
+        case 0..<0.72:
+            Haptics.impact(.light, intensity: intensity)
+        case 0..<0.94:
+            Haptics.impact(.medium, intensity: intensity)
+        default:
+            Haptics.impact(.rigid, intensity: min(1, intensity + 0.08))
+        }
     }
 
     private func reveal() {
         guard !isOpen else { return }
+        let token = UUID()
+        revealHapticToken = token
         tearProgress = 1
         tearHapticStep = 0
-        cardFlipBaseDegrees = 0
-        cardFlipDragDegrees = 0
         openedAt = Date()
-        isRevealing = true
-        Haptics.impact(.rigid)
+        Haptics.impact(.rigid, intensity: 1.0)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.flap * 0.58) {
-            Haptics.impact(.soft)
+        func beat(after delay: TimeInterval, _ action: @escaping () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard revealHapticToken == token else { return }
+                action()
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.envelopeDropDelay) {
-            Haptics.impact(.medium)
+
+        beat(after: anim.flap * 0.26) {
+            Haptics.impact(.light, intensity: 0.54)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.cardBounceDelay) {
-            Haptics.impact(.light)
+
+        beat(after: anim.cardDelay) {
+            Haptics.impact(.medium, intensity: 0.84)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + anim.total) {
-            isRevealing = false
+
+        beat(after: anim.confettiDelay + 0.05) {
+            Haptics.impact(.rigid, intensity: 0.88)
+        }
+
+        beat(after: anim.envelopeDropDelay + 0.16) {
+            Haptics.impact(.heavy, intensity: 0.78)
+        }
+
+        beat(after: anim.cardBounceDelay) {
+            Haptics.impact(.medium, intensity: 0.76)
+        }
+
+        beat(after: anim.cardBounceDelay + anim.cardBounce * 0.38) {
+            Haptics.impact(.light, intensity: 0.50)
+        }
+
+        beat(after: anim.messageDelay) {
+            Haptics.impact(.soft, intensity: 0.36)
+        }
+    }
+
+    private func startThanks(elapsed: TimeInterval) {
+        guard thanksStartedAt == nil else { return }
+
+        let token = UUID()
+        thanksStartedAt = elapsed
+        thanksCloseToken = token
+        Haptics.impact(.medium, intensity: 0.82)
+
+        func beat(after delay: TimeInterval, _ action: @escaping () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard thanksCloseToken == token else { return }
+                action()
+            }
+        }
+
+        beat(after: 0.10) {
+            Haptics.impact(.light, intensity: 0.62)
+        }
+
+        beat(after: 0.26) {
+            Haptics.impact(.soft, intensity: 0.42)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Metrics.thanksCloseDelay) {
+            guard thanksCloseToken == token else { return }
+            onThanks()
         }
     }
 
@@ -706,6 +799,7 @@ struct PostcardEnvelopeGiftScreen: View {
     private func panel(
         title: String,
         stage: Stage,
+        thanksElapsed: TimeInterval?,
         action: @escaping () -> Void
     ) -> some View {
         ZStack(alignment: .top) {
@@ -716,56 +810,220 @@ struct PostcardEnvelopeGiftScreen: View {
             )
             .fill(WBColor.bgBase)
 
-            WBPrimaryButton(title: title, action: action)
+            EnvelopeThanksButton(title: title, action: action)
                 .frame(
                     width: stage.width - Metrics.sideInset * 2,
                     height: Metrics.buttonHeight
                 )
                 .offset(y: Metrics.panelTopPadding)
+                .zIndex(2)
+
+            if let thanksElapsed, thanksElapsed <= Metrics.thanksBurstDuration {
+                EnvelopeThanksHeartBurstView(elapsed: thanksElapsed)
+                    .frame(width: min(stage.width, 290), height: 360)
+                    .position(
+                        x: stage.width / 2 - 68,
+                        y: Metrics.panelTopPadding + Metrics.buttonHeight / 2
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(3)
+            }
         }
         .frame(width: stage.width, height: stage.panelHeight, alignment: .top)
     }
 }
 
-// MARK: - Переворачиваемая открытка
-
-private struct EnvelopeFlippablePostcardView: View {
-    let card: Postcard
-    let tilt: TiltInput
-    let flipDegrees: Double
-    let backMessage: String
-
-    private var showsFront: Bool {
-        cos(Self.normalizedDegrees(flipDegrees) * .pi / 180) >= 0
-    }
+private struct EnvelopeThanksButton: View {
+    let title: String
+    let action: () -> Void
 
     var body: some View {
-        let mirroredFlipDegrees = -flipDegrees
-        let shape = RoundedRectangle(
-            cornerRadius: PostcardMetrics.cornerRadius,
-            style: .continuous
-        )
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
 
-        return ZStack {
-            GlossyPostcardView(card: card, tilt: tilt)
-                .opacity(showsFront ? 1 : 0)
-
-            PostcardBackFace(message: backMessage)
-                .frame(width: PostcardMetrics.cardSize.width, height: PostcardMetrics.cardSize.height)
-                .clipShape(shape)
-                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
-                .opacity(showsFront ? 0 : 1)
+                Text(title)
+                    .font(.system(size: 16, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.88)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background {
+                RoundedRectangle(cornerRadius: WBRadius.x5, style: .continuous)
+                    .fill(WBColor.ctaFill)
+            }
         }
-        .rotation3DEffect(
-            .degrees(mirroredFlipDegrees),
-            axis: (x: 0, y: 1, z: 0),
-            perspective: 0.58
+        .buttonStyle(EnvelopeThanksButtonStyle())
+        .accessibilityLabel(title)
+    }
+}
+
+private struct EnvelopeThanksButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(
+                .spring(response: 0.18, dampingFraction: 0.82),
+                value: configuration.isPressed
+            )
+    }
+}
+
+private struct EnvelopeThanksHeartBurstView: View {
+    let elapsed: TimeInterval
+
+    private let duration: CGFloat = 1.32
+
+    var body: some View {
+        let raw = CGFloat(elapsed) / duration
+
+        ZStack {
+            ForEach(EnvelopeThanksSprayParticle.all) { particle in
+                let p = particle.progress(at: raw)
+                let position = particle.position(progress: p)
+                let scale = particle.scale(progress: p)
+
+                Image(systemName: particle.symbol)
+                    .font(.system(size: particle.size, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: particle.colors,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .scaleEffect(scale)
+                    .rotationEffect(.degrees(particle.rotation(progress: p)))
+                    .opacity(Double(particle.opacity(progress: p)))
+                    .offset(x: position.x, y: position.y)
+            }
+        }
+        .scaleEffect(0.98 + 0.02 * Ease.appear(clamp01(raw)))
+    }
+}
+
+private struct EnvelopeThanksSprayParticle: Identifiable {
+    let id: Int
+    let symbol: String
+    let size: CGFloat
+    let lifespan: CGFloat
+    let lane: CGFloat
+    let value2: CGFloat
+    let angle: Double
+    let phase: Double
+    let maxOpacity: CGFloat
+    let colors: [Color]
+
+    init(id: Int) {
+        self.id = id
+
+        let index = CGFloat(id)
+        let scaleFactor = CGFloat(id % 5) / 5
+        let value = index / 10
+        let isSparkle = id == 3 || id == 8
+
+        symbol = isSparkle ? "sparkles" : "heart.fill"
+        size = isSparkle
+            ? 22
+            : 26
+        lifespan = lerp(0.84, 1.00, Self.unit(id, salt: 2))
+        lane = value - 0.5
+        value2 = Self.unit(id, salt: 3) + scaleFactor
+        angle = Double(value * 45 - 22.5)
+        phase = Double(Self.unit(id, salt: 4)) * .pi * 2
+        maxOpacity = isSparkle
+            ? 0.82
+            : 1
+        colors = isSparkle
+            ? [
+                Color.dynamic(light: 0xFF8CAA, dark: 0xFFB6CC),
+                Color.dynamic(light: 0xFF3D72, dark: 0xFF83A2),
+            ]
+            : [
+                Color.dynamic(light: 0xFF705F, dark: 0xFF91A7),
+                Color.dynamic(light: 0xF04472, dark: 0xFF6F9B),
+            ]
+    }
+
+    func progress(at raw: CGFloat) -> CGFloat {
+        clamp01(raw / lifespan)
+    }
+
+    func position(progress p: CGFloat) -> CGPoint {
+        let symbolWidth: CGFloat = 46
+        let symbolHeight: CGFloat = 54
+        let horizontalSpread = CGFloat(sin(Double(p) * .pi)) * symbolWidth * -3.15
+        let insetAmount = CGFloat(cos(Double(p))) * p * -symbolHeight * 3.15
+        let verticalTravel = value2 * p * symbolHeight * 3.2
+
+        return CGPoint(
+            x: lane * horizontalSpread,
+            y: insetAmount - verticalTravel
         )
     }
 
-    private static func normalizedDegrees(_ degrees: Double) -> Double {
-        let value = degrees.truncatingRemainder(dividingBy: 360)
-        return value >= 0 ? value : value + 360
+    func scale(progress p: CGFloat) -> CGFloat {
+        let sineScale = abs(sin(Double(p * 0.75 + value2) * .pi))
+        let death = 1 - pow(p, 8)
+        let birth = pow(max(0.001, p), 0.25)
+        return max(0.001, sineScale * death * birth)
+    }
+
+    func opacity(progress p: CGFloat) -> CGFloat {
+        let birth = clamp01(p * 4)
+        let visibleScale = min(1, scale(progress: p) * 2.6)
+        return maxOpacity * birth * visibleScale
+    }
+
+    func rotation(progress p: CGFloat) -> Double {
+        let firstTurn = Double(p) * -angle - angle * 0.25
+        let secondTurn = sqrt(Double(p) * 2) * angle - angle * 0.25
+        let wobble = sin(Double(p) * .pi * 2 + phase) * 3
+        return firstTurn + secondTurn + wobble
+    }
+
+    private static func unit(_ id: Int, salt: Int) -> CGFloat {
+        var value = UInt64(truncatingIfNeeded: id + 1)
+        value &+= UInt64(truncatingIfNeeded: salt + 1) &* 0x9E37_79B9_7F4A_7C15
+        value ^= value >> 30
+        value &*= 0xBF58_476D_1CE4_E5B9
+        value ^= value >> 27
+        value &*= 0x94D0_49BB_1331_11EB
+        value ^= value >> 31
+        return CGFloat(Double(value & 0xFFFF) / Double(0xFFFF))
+    }
+
+    static let all: [EnvelopeThanksSprayParticle] = (0..<11).map {
+        EnvelopeThanksSprayParticle(id: $0)
+    }
+}
+
+private extension View {
+    func envelopeMessageReveal(
+        _ p: CGFloat,
+        position: WBMessageBubble.Position
+    ) -> some View {
+        let t = clamp01(p)
+        let settle = Ease.spring(t)
+        let appear = Ease.appear(clamp01(t * 1.12))
+        let stretch = overshootPulse(clamp01((t - 0.26) / 0.74))
+        let rotationDirection: Double = position == .left ? 1 : -1
+        let rotation = rotationDirection
+            * 3
+            * Double(1 - t)
+            * cos(Double(t) * .pi * 1.5)
+        let scale = 0.94 + 0.06 * settle + 0.014 * stretch
+        let verticalOffset = (1 - settle) * 6 - stretch * 0.8
+        let anchor: UnitPoint = position == .left ? .bottomLeading : .bottomTrailing
+
+        return scaleEffect(scale, anchor: anchor)
+            .rotationEffect(.degrees(rotation), anchor: anchor)
+            .offset(y: verticalOffset)
+            .opacity(Double(appear))
     }
 }
 
@@ -802,6 +1060,9 @@ private struct EnvelopePackageView: View {
                     isInteractive: isInteractive
                 )
                 .zIndex(4)
+
+                EnvelopeCutHintView(config: config)
+                    .zIndex(4.1)
             }
         }
     }
@@ -826,6 +1087,7 @@ private struct EnvelopeFrontLayerView: View {
     let sealProgress: CGFloat
     let isInteractive: Bool
     var showsSeal: Bool = true
+    var showsCutHint: Bool = false
 
     var body: some View {
         GeometryReader { _ in
@@ -841,6 +1103,10 @@ private struct EnvelopeFrontLayerView: View {
                         progress: sealProgress,
                         isInteractive: isInteractive
                     )
+                }
+
+                if showsCutHint {
+                    EnvelopeCutHintView(config: config)
                 }
             }
         }
@@ -1134,41 +1400,41 @@ private struct EnvelopeCapLayerView: View {
 }
 
 private struct EnvelopeCutHintView: View {
-    let progress: CGFloat
+    let config: EnvelopeRevealConfig
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let opacity = 1 - Ease.appear(clamp01(progress * 5))
-            let chevronOffset = chevronOffset(at: context.date.timeIntervalSinceReferenceDate)
+        GeometryReader { geo in
+            let size = geo.size
+            let position = hintPosition(in: size)
 
-            HStack(spacing: 5) {
-                Text("Проведите по линии")
-                    .font(WBFont.description)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .frame(width: 9, height: WBLineHeight.description)
-                    .offset(x: chevronOffset)
-            }
-            .foregroundStyle(WBColor.textSecondary)
-            .opacity(Double(opacity))
+            Text("Проведите по линии")
+                .font(WBFont.description)
+                .foregroundStyle(.white.opacity(0.64))
+                .lineLimit(1)
+                .frame(width: size.width, height: WBLineHeight.description)
+                .position(position)
         }
         .allowsHitTesting(false)
     }
 
-    private func chevronOffset(at time: TimeInterval) -> CGFloat {
-        let run: TimeInterval = 0.58
-        let pause: TimeInterval = 0.92
-        let cycle = run + pause
-        let cycleTime = time.truncatingRemainder(dividingBy: cycle)
-        guard cycleTime < run else { return 0 }
-
-        let p = CGFloat(cycleTime / run)
-        if p < 0.45 {
-            return 5 * Ease.appear(p / 0.45)
+    private func hintPosition(in size: CGSize) -> CGPoint {
+        if config.seam.isHorizontal {
+            let seamY = size.height * config.seam.position
+            let offset: CGFloat = 24
+            let y = seamY + offset
+            return CGPoint(
+                x: size.width / 2,
+                y: min(size.height - WBLineHeight.description / 2, y)
+            )
         }
 
-        return 5 * (1 - Ease.move((p - 0.45) / 0.55))
+        let seamX = size.width * config.seam.position
+        let offset = size.width * (20.0 / 1080.0)
+        let x = seamX + offset + 90
+        return CGPoint(
+            x: min(size.width - 90, max(90, x)),
+            y: size.height / 2
+        )
     }
 }
 
@@ -1621,6 +1887,7 @@ private struct EnvelopeConfettiField: View {
                 ForEach(EnvelopeFlexConfettiParticle.all) { particle in
                     let state = particle.state(atFrame: sourceFrame)
                     let flutter = particle.flutter(atFrame: sourceFrame)
+                    let tailScale = state.tailScale
                     let x = origin.x
                         + (state.point.x - EnvelopeFlexConfettiParticle.sourceCenter.x) * motionScale.width
                     let y = origin.y
@@ -1629,7 +1896,7 @@ private struct EnvelopeConfettiField: View {
                     EnvelopeFlexConfettiPiece(particle: particle)
                         .opacity(Double(state.opacity * layer.opacity(atFrame: sourceFrame)))
                         .rotationEffect(.degrees(state.rotation))
-                        .scaleEffect(x: flutter.x, y: flutter.y)
+                        .scaleEffect(x: flutter.x * tailScale, y: flutter.y * tailScale)
                         .shadow(color: particle.color.opacity(0.18), radius: 4, y: 1)
                         .position(x: x, y: y)
                 }
@@ -1672,15 +1939,22 @@ private struct EnvelopeFlexConfettiParticle: Identifiable {
     let spin: Double
     let samples: [EnvelopeFlexConfettiSample]
 
-    func state(atFrame frame: CGFloat) -> (point: CGPoint, opacity: CGFloat, rotation: Double) {
+    func state(atFrame frame: CGFloat) -> (
+        point: CGPoint,
+        opacity: CGFloat,
+        rotation: Double,
+        tailScale: CGFloat
+    ) {
         let f = min(Self.sourceFrameCount, max(0, frame))
         let point = point(atFrame: f)
-        let fade = 1 - Ease.appear(clamp01((f - 134) / 7))
+        let tail = tailProgress(atFrame: f)
+        let fade = 1 - tail
         let appear = Ease.appear(clamp01(f / 8))
         let wobble = sin(Double(f) * 0.21 + Double(id) * 0.83) * 16
         let rotation = spin * Double(f / Self.sourceFrameCount) + wobble
+        let tailScale = 1 - 0.18 * tail
 
-        return (point, appear * fade * 0.96, rotation)
+        return (point, appear * fade * 0.96, rotation, tailScale)
     }
 
     func flutter(atFrame frame: CGFloat) -> (x: CGFloat, y: CGFloat) {
@@ -1715,7 +1989,13 @@ private struct EnvelopeFlexConfettiParticle: Identifiable {
         return samples.last?.point ?? first.point
     }
 
+    private func tailProgress(atFrame frame: CGFloat) -> CGFloat {
+        Ease.move(clamp01((frame - Self.tailFadeStartFrame) / Self.tailFadeFrameCount))
+    }
+
     static let sourceFrameCount: CGFloat = 141
+    private static let tailFadeStartFrame: CGFloat = 108
+    private static let tailFadeFrameCount: CGFloat = 33
     static let sourceCenter = CGPoint(x: 465.6, y: 402.6)
 
     private static let lottieYellow = Color(red: 0.976, green: 0.776, blue: 0.024)
